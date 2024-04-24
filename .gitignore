@@ -1,0 +1,15 @@
+build:
+bdist.linux-x86_64
+lib
+
+dist:
+pydusty-0.1.1-py3.10.egg
+
+pydusty.egg-info:
+PKG-INFO
+SOURCES.txt
+dependency_links.txt
+top_level.txt
+
+pydusty:
+__pycache__/
