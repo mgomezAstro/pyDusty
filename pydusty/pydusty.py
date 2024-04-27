@@ -302,11 +302,8 @@ class DustyReader:
                 if row.find("RESULTS") != -1:
                     results_index = lines.index(row) + 5
 
-            print(lines)
-            print(results_index)
             for i in range(results_index, results_index + self.n_models):
                 line = lines[i]
-                print(line)
 
                 data = line.split()
                 output_data["tau0"].append(float(data[1]))
