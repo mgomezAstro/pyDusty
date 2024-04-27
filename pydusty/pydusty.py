@@ -71,7 +71,7 @@ class DustyInp:
                     "Y": thickness,
                     "simga": sigma,
                 }
-            case "RDW" | "RDW_Analytic":
+            case "RDW" | "RDWA":
                 self.geometry_params = {"Denisty Type": density_type, "Y": thickness}
             case "USR_SUPPLD":
                 self.geometry_params = {
@@ -80,7 +80,7 @@ class DustyInp:
                 }
             case _:
                 raise ValueError(
-                    "Density Type must be one of [POWD, EXPD, RDW, RWD_Analytical, or USR_SUPPLD]."
+                    "Density Type must be one of [POWD, EXPD, RDW, RWDA, or USR_SUPPLD]."
                 )
 
     def set_central_radiation(self, central: bool = True) -> None:
@@ -294,31 +294,41 @@ class DustyReader:
             "RPr": [],
             "error%": [],
         }
-        start_table: bool = False
+
         with open(str(self.model_name) + ".out", "r") as f:
-            for line in f:
+            lines = f.readlines()
+            results_index = 0
+            for row in lines:
+                if row.find("RESULTS") != -1:
+                    results_index = lines.index(row) + 5
 
-                if "=====================================" == line.rstrip().lstrip():
-                    start_table = False
+            print(lines)
+            print(results_index)
+            for i in range(results_index, results_index + self.n_models):
+                line = lines[i]
+                print(line)
 
-                if start_table:
-                    data = line.split()
-                    output_data["tau0"].append(float(data[1]))
-                    output_data["Ps1/Ps0"].append(float(data[2]))
-                    output_data["Fi(W/m2)"].append(float(data[3]))
-                    output_data["R1"].append(float(data[4]))
-                    output_data["R1/Rc"].append(float(data[5]))
-                    output_data["theta1"].append(float(data[6]))
-                    output_data["T1(K)"].append(float(data[7]))
-                    output_data["Td(K)"].append(float(data[8]))
-                    output_data["RPr"].append(float(data[9]))
-                    output_data["error%"].append(float(data[10]))
-
-                if (
-                    "========================================================================================"
-                    == line.rstrip().lstrip()
-                ):
-                    start_table = True
+                data = line.split()
+                output_data["tau0"].append(float(data[1]))
+                output_data["Ps1/Ps0"].append(float(data[2]))
+                output_data["Fi(W/m2)"].append(float(data[3]))
+                output_data["R1"].append(float(data[4]))
+                output_data["R1/Rc"].append(float(data[5]))
+                output_data["theta1"].append(float(data[6]))
+                output_data["T1(K)"].append(float(data[7]))
+                output_data["Td(K)"].append(float(data[8]))
+                output_data["RPr"].append(float(data[9]))
+                output_data["error%"].append(float(data[10]))
+                if len(data) > 11:
+                    if "Mdot" not in output_data:
+                        output_data["Mdot"] = []
+                    output_data["Mdot"].append(float(data[11]))
+                    if "Ve" not in output_data:
+                        output_data["Ve"] = []
+                    output_data["Ve"].append(float(data[12]))
+                    if "M>" not in output_data:
+                        output_data["M>"] = []
+                    output_data["M>"].append(float(data[13]))
 
         return pd.DataFrame(output_data)
 
@@ -410,12 +420,12 @@ class DustyReader:
                     )
             seds.append(flux)
 
-        match x_unit:
-            case "um":
+        match x_unit.lower():
+            case "um" | "micron":
                 wave *= 1
-            case "Ang":
+            case "ang" | "aa" | "angstroms":
                 wave *= 1e4
-            case "um-1":
+            case "um-1" | "micron-1":
                 wave = 1 / wave
             case _:
                 raise ValueError("x_unit must be one of [um, Ang, um-1].")
