@@ -275,10 +275,18 @@ class DustyReader:
 
     def __post_init__(self):
         self.n_models: int = 0
+        self.Psi0: float = 0.0
+        self._comments = ""
         with open(str(self.model_name) + ".inp", "r") as o:
             for line in o:
                 if "n_models" in line:
                     self.n_models = int(line.split("=")[1])
+        with open(str(self.model_name) + ".out", "r") as o:
+            for line in o:
+                if line[0] == "*":
+                    self._comments += line.rstrip().lstrip() + "\n"
+                if "IE97" in line:
+                    self.Psi0 = float(line.split("=")[1])
 
     @property
     def _get_output_data(self) -> pd.DataFrame:
@@ -328,15 +336,6 @@ class DustyReader:
                     output_data["M>"].append(float(data[13]))
 
         return pd.DataFrame(output_data)
-
-    @property
-    def _comments(self) -> str:
-        text = ""
-        with open(str(self.model_name) + ".out", "r") as f:
-            for line in f:
-                if line[0] == "*":
-                    text += line.rstrip().lstrip() + "\n"
-        return text
 
     def get_comments(self) -> str:
         return self._comments
