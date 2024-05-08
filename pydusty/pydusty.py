@@ -1,5 +1,4 @@
 import numpy as np
-import pandas as pd
 import subprocess
 import time
 from pathlib import Path
@@ -32,7 +31,7 @@ class DustyInp:
         self.output_text: str = ">\n"
         self.comments: List[str] = ["*---------------"]
         self.options: dict = {
-            "flux conservation": 0.01,
+            "flux conservation": 0.1,
             "s": 2,
             "i": 0,
             "j": 0,
@@ -259,14 +258,14 @@ class DustyInp:
             o.write(self.output_text)
 
     def run(self) -> None:
-        script = f"{self.exe_path} {self.full_model_name}.inp"
-        print("\nRunning DUSTY (v4)")
-        print(f"Model name: {self.model_name}")
+        script = f"{self.exe_path} {self.full_model_name}.inp 0"
+        # print("\nRunning DUSTY (v4)")
+        # print(f"Model name: {self.model_name}")
         start_timer = time.time()
         proc = subprocess.Popen(script, shell=True, stdout=subprocess.PIPE, stdin=None)
         proc.communicate()
         end_timer = time.time() - start_timer
-        print(f"Ended after: {end_timer:.2f}s\n")
+        # print(f"Ended after: {end_timer:.2f}s\n")
 
 
 @dataclass
@@ -289,7 +288,7 @@ class DustyReader:
                     self.Psi0 = float(line.split("=")[1])
 
     @property
-    def _get_output_data(self) -> pd.DataFrame:
+    def _get_output_data(self) -> dict:
         output_data = {
             "tau0": [],
             "Ps1/Ps0": [],
@@ -335,7 +334,7 @@ class DustyReader:
                         output_data["M>"] = []
                     output_data["M>"].append(float(data[13]))
 
-        return pd.DataFrame(output_data)
+        return output_data
 
     def get_comments(self) -> str:
         return self._comments

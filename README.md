@@ -3,7 +3,7 @@ Python wrapper for the radiate transfer code DUSTY (v4) (2000ASPC..196...77N).
 
 ### Requirements
 
-You need to install DUSTY v4 from the [dusty](https://github.com/ivezic/dusty) repository.  A few changes need to e made to the original code. You need to modify the ``dusty.f90`` according to the following:
+You need to install DUSTY v4 from the [dusty](https://github.com/ivezic/dusty) repository.  A few changes need to be made to the original code. You need to modify the ``dusty.f90`` according to the following:
 
 - Look for ``print*,`` and correct to ``print*``.
 - Add the full installation path in the header of ``dusty.f90`` (where this file is located) and look for the following lines as:
