@@ -2,8 +2,7 @@ build:
 bdist.linux-x86_64
 lib
 
-dist:
-pydusty-0.1.1-py3.10.egg
+dist
 
 pydusty.egg-info:
 PKG-INFO

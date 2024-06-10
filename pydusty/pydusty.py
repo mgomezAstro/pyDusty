@@ -105,8 +105,8 @@ class DustyInp:
             self.spectral_shape = {
                 "Spectral Shape": "BLACK_BODY",
                 "Number of BB": len(temperature),
-                "Temperature": ",".join(map(lambda x: str(x), temperature)),
-                "Luminosities": ",".join(map(lambda x: str(x), l_ratios)),
+                "Temperature": ", ".join(map(lambda x: str(x), temperature)),
+                "Luminosities": ", ".join(map(lambda x: str(x), l_ratios)),
             }
 
     def set_radiation_strenght(
