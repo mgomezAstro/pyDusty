@@ -3,6 +3,7 @@ import subprocess
 import time
 from pathlib import Path
 from dataclasses import dataclass
+import logging
 from typing import Union, List, Optional
 
 
@@ -12,6 +13,7 @@ class DustyInp:
     exe_path: Union[str, Path]
 
     def __post_init__(self) -> None:
+        self._dusty_logger = logging.getLogger(__name__)
         self.geometry: str = ""
         self.geometry_params: dict = {}
         self.external_radiation: dict = {"central": "ON", "external": "OFF"}
@@ -86,12 +88,26 @@ class DustyInp:
         if central == False:
             self.external_radiation = {"central": "OFF", "external": "ON"}
 
-    def set_blackbody(self, temperature: float) -> None:
-        self.spectral_shape = {
-            "Spectral Shape": "BLACK_BODY",
-            "Number of BB": 1,
-            "Temperature": temperature,
-        }
+    def set_blackbody(
+        self, temperature: Union[float, List[float]], l_ratios: List[float] = None
+    ) -> None:
+        if not isinstance(temperature, list):
+            self.spectral_shape = {
+                "Spectral Shape": "BLACK_BODY",
+                "Number of BB": 1,
+                "Temperature": temperature,
+            }
+        else:
+            if len(temperature) != len(l_ratios):
+                raise ValueError(
+                    "Size of temperatures and luminosity ratios must be equal."
+                )
+            self.spectral_shape = {
+                "Spectral Shape": "BLACK_BODY",
+                "Number of BB": len(temperature),
+                "Temperature": ",".join(map(lambda x: str(x), temperature)),
+                "Luminosities": ",".join(map(lambda x: str(x), l_ratios)),
+            }
 
     def set_radiation_strenght(
         self, scale_type: str, scale_value: Union[float, List[float]]
@@ -258,7 +274,7 @@ class DustyInp:
             o.write(self.output_text)
 
     def run(self) -> None:
-        script = f"{self.exe_path} {self.full_model_name}.inp 0"
+        script = f"{self.exe_path} {self.full_model_name}.inp"
         # print("\nRunning DUSTY (v4)")
         # print(f"Model name: {self.model_name}")
         start_timer = time.time()
