@@ -364,7 +364,7 @@ class DustyReader:
         x_unit: str = "um",
     ) -> tuple:
 
-        skiprows = 1
+        skiprows = 6
         seds = []
         for i in range(self.n_models):
             spec_filename = str(self.model_name) + f".s{i + 1:03}"
