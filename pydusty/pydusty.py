@@ -211,14 +211,14 @@ class DustyInp:
                 self.output_text += f"{key} = {self.spectral_shape[key]}\n"
             self.output_text += "\n"
             for key in self.scale.keys():
-                self.output_text += f"{key} = {self.scale[key]}\n"
+                self.output_text += f"{key} = {self.scale[key]:.5e}\n"
             self.output_text += "\n"
             self.output_text += f"external = {self.external_radiation['external']}\n\n"
         else:
             self.output_text += f"central = {self.external_radiation['central']}\n\n"
             self.output_text += f"external = {self.external_radiation['external']}\n\n"
             for key in self.spectral_shape.keys():
-                self.output_text += f"{key} = {self.spectral_shape[key]}\n"
+                self.output_text += f"{key} = {self.spectral_shape[key]:.5e}\n"
             self.output_text += "\n"
             for key in self.scale.keys():
                 self.output_text += f"{key} = {self.scale[key]}\n"
