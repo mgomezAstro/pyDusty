@@ -109,10 +109,9 @@ class DustyInp:
                 "Luminosities": ", ".join(map(lambda x: str(x), l_ratios)),
             }
 
-    def set_star(filename: str, shape: str) -> None:
+    def set_star(self, filename: str, shape: str) -> None:
         self.spectral_shape = {
-                "Spectral Shape": filename,
-                "": shape,
+                "Spectral Shape": shape + "\n" + filename,
         }
 
     def set_radiation_strenght(
