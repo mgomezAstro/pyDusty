@@ -4,6 +4,7 @@ setup(
     name="pydusty",
     version="0.2.0",
     packages=find_packages(),
+    package_data={"pydusty": ["data/*.txt"]},
     install_requires=["miepython"],
     description="Python wrapper for the radiative transfer code Dusty (v4) originally created by Maia Nenkova (2000ASPC..196...77N).",
     author="M. A. Gomez-Munoz",
