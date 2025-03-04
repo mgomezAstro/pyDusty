@@ -214,11 +214,11 @@ def thermal_emission(
         raise ValueError("Distance must be one of [Mpc, kpc, pc].")
 
     if distance_unit == "Mpc":
-        dist = distance * mpc_to_cm
+        distance *= mpc_to_cm
     if distance_unit == "kpc":
-        dist = distance * kpc_to_cm
+        distance *= kpc_to_cm
     if distance_unit == "pc":
-        dist = distance * pc_to_cm
+        distance *= pc_to_cm
 
     bb = planck_bb(wave * micron_to_cm, temperature, output_units="nu")
     opac = np.ones_like(bb)
@@ -237,4 +237,4 @@ def thermal_emission(
             grain_type=grain_type,
         )
 
-    return (dust_mass * solmass_to_grams) * bb * opac / dist**2
+    return (dust_mass * solmass_to_grams) * bb * opac / distance**2
