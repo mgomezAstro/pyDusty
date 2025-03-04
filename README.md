@@ -10,7 +10,7 @@ You need to install DUSTY v4 from the [dusty](https://github.com/ivezic/dusty) r
 ```fortran
 implicit none
 character*260 :: dpath
-PARAMETER dpath("full_path_to/dusty/release/dusty/")
+PARAMETER dpath = "full_path_to/dusty/release/dusty/"
 .
 .
 .
@@ -32,7 +32,7 @@ You also need python 3.10 or above.
 
 ### Installation
 
-`python setup.py install`
+`pip install git+https://github.com/mgomezAstro/pyDusty.git`
 
 
 ### Example
