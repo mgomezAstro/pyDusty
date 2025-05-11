@@ -6,7 +6,7 @@ Created on Tue Mar  4 16:22:20 2025
 @author: magm
 """
 
-import miepython.miepython as mie
+import miepython as mie
 import numpy as np
 import os
 import sys
@@ -109,7 +109,7 @@ def get_opacity(
                 "You must specify the density rho when using custom 'm'."
             )
         x = 2 * np.pi * a / wave
-        Qext, _, _, _ = mie.mie(m, x)
+        Qext, _, _, _ = mie.efficiencies_mx(m, x)
 
         return 3.0 * Qext / (4.0 * rho * a)
 
@@ -145,8 +145,8 @@ def get_opacity(
         m_perp = real_perp - 1.0j * im_perp
         x_par = 2 * np.pi * a / wl_par
         x_perp = 2 * np.pi * a / wl_perp
-        qext_par, _, _, _ = mie.mie(m_par, x_par)
-        qext_perp, _, _, _ = mie.mie(m_perp, x_perp)
+        qext_par, _, _, _ = mie.efficiencies_mx(m_par, x_par)
+        qext_perp, _, _, _ = mie.efficiencies_mx(m_perp, x_perp)
 
         qext = (1.0 / 3.0) * qext_par + (2.0 / 3.0) * qext_perp
 
@@ -161,7 +161,7 @@ def get_opacity(
         rho = available_grains[grain_type][1]
         m = real - 1.0j * im
         x = 2 * np.pi * a / wl
-        qext, _, _, _ = mie.mie(m, x)
+        qext, _, _, _ = mie.efficiencies_mx(m, x)
 
         Qext = np.interp(wave, wl, qext, left=0.0, right=0.0)
 
