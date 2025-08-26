@@ -105,12 +105,9 @@ def get_opacity(
 
     if m is not None and rho is not None:
         x = 2 * np.pi * a / wave
-<<<<<<< HEAD
         Qext, _, _, _ = mie.mie(m, x)
-=======
         Qext, _, _, _ = mie.efficiencies_mx(m, x)
 
->>>>>>> 74b542e1d94121c75bfe036983e11b34d33ef8de
         return 3.0 * Qext / (4.0 * rho * a)
 
     elif (m is None and rho is not None) or (m is not None and rho is None):
