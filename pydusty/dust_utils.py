@@ -68,8 +68,8 @@ def get_opacity(
     wave: np.ndarray,
     a: float,
     grain_type: str = "silicate",
-    m: np.ndarray = None,
-    rho: float = None,
+    m: np.ndarray | None = None,
+    rho: float | None = None,
 ):
     """
 
@@ -103,16 +103,16 @@ def get_opacity(
         os.path.dirname(sys._getframe(1).f_code.co_filename), "data/"
     )
 
-    if m is not None:
-        if rho is None:
-            raise ValueError(
-                "You must specify the density rho when using custom 'm'."
-            )
+    if m is not None and rho is not None:
         x = 2 * np.pi * a / wave
         Qext, _, _, _ = mie.mie(m, x)
-
         return 3.0 * Qext / (4.0 * rho * a)
 
+    elif (m is None and rho is not None) or (m is not None and rho is None):
+        raise ValueError(
+                "You must specify the density rho when using custom 'm'."
+            )
+        
     available_grains = {
         "silicate": ["silicate.txt", 3.3],
         "amcarb": ["am-carb.txt", 1.81],
@@ -176,8 +176,8 @@ def thermal_emission(
     distance: float = 1.0,
     distance_unit: str = "Mpc",
     grain_type: str = "silicate",
-    m: np.ndarray = None,
-    rho: float = None,
+    m: np.ndarray | None = None,
+    rho: float | None = None,
 ):
     """
 
@@ -213,7 +213,7 @@ def thermal_emission(
     if distance_unit not in ["mpc", "kpc", "pc"]:
         raise ValueError("Distance must be one of [Mpc, kpc, pc].")
 
-    if distance_unit == "Mpc":
+    if distance_unit == "mpc":
         distance *= mpc_to_cm
     if distance_unit == "kpc":
         distance *= kpc_to_cm
@@ -223,7 +223,7 @@ def thermal_emission(
     bb = planck_bb(wave * micron_to_cm, temperature, output_units="nu")
     opac = np.ones_like(bb)
 
-    if m is not None:
+    if m is not None and rho is not None:
         opac = get_opacity(
             wave=wave * micron_to_cm,
             a=a * micron_to_cm,
