@@ -226,17 +226,25 @@ def thermal_emission(
     opac = np.ones_like(bb)
 
     if m is not None and rho is not None:
-        opac = get_opacity(
-            wave=wave * micron_to_cm,
-            a=a * micron_to_cm,
-            m=m,
-            rho=rho,
-        )
+        if os.path.exists("./custom_opac.txt"):
+            opac = np.loadtxt(f"./{grain_type}_opac.txt")
+        else:
+            opac = get_opacity(
+                wave=wave * micron_to_cm,
+                a=a * micron_to_cm,
+                m=m,
+                rho=rho,
+            )
+            np.savetxt("./custom_opac.txt", opac)
     else:
-        opac = get_opacity(
-            wave=wave * micron_to_cm,
-            a=a * micron_to_cm,
-            grain_type=grain_type,
-        )
+        if os.path.exists(f"./{grain_type}_opac.txt"):
+            opac = np.loadtxt(f"./{grain_type}_opac.txt")
+        else:
+            opac = get_opacity(
+                wave=wave * micron_to_cm,
+                a=a * micron_to_cm,
+                grain_type=grain_type,
+            )
+            np.savetxt(f"./{grain_type}_opac.txt", opac)
 
     return (dust_mass * solmass_to_grams) * bb * opac / distance**2
