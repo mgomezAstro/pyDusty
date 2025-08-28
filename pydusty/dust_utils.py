@@ -226,7 +226,7 @@ def thermal_emission(
 
     if m is not None and rho is not None:
         if os.path.exists("./custom_opac.txt"):
-            opac = np.loadtxt(f"./{grain_type}_opac.txt")
+            opac = np.loadtxt(f"./custom_opac.txt")
         else:
             opac = get_opacity(
                 wave=wave * micron_to_cm,
