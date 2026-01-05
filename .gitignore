@@ -4,6 +4,7 @@ lib
 
 dist
 
+pydusty.egg-info
 pydusty.egg-info:
 PKG-INFO
 SOURCES.txt

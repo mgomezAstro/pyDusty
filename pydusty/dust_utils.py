@@ -54,7 +54,7 @@ def planck_bb(
     Returns
     -------
     flux : np.ndarray
-        The blackbody flux in either in erg s⁻¹ cm⁻² Hz⁻¹ or in erg s⁻¹ cm⁻² AA⁻¹..
+        The blackbody flux in either in erg s⁻¹ cm⁻² Hz⁻¹ sr⁻¹ or in erg s⁻¹ cm⁻² AA⁻¹ sr⁻¹.
 
     """
     if output_units == "nu":
