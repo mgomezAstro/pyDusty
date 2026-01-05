@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="pydusty",
-    version="0.5.3",
+    version="0.5.4",
     packages=find_packages(),
     package_data={"pydusty": ["data/*.txt"]},
     install_requires=["miepython >= 3.0"],
