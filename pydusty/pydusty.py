@@ -278,15 +278,24 @@ class DustyInp:
         with open(str(self.full_model_name) + ".inp", "+w") as o:
             o.write(self.output_text)
 
-    def run(self) -> None:
+    def run(self, verbose=False) -> None:
         script = f"{self.exe_path} {self.full_model_name}.inp"
-        # print("\nRunning DUSTY (v4)")
-        # print(f"Model name: {self.model_name}")
-        start_timer = time.time()
-        proc = subprocess.Popen(script, shell=True, stdout=subprocess.PIPE, stdin=None)
+
+        start_timer = 0.0
+        sp = subprocess.PIPE
+
+        if verbose:
+            print("\nRunning DUSTY (v4)")
+            print(f"Model name: {self.model_name}")
+            sp = None
+            start_timer = time.time()
+
+        proc = subprocess.Popen(script, shell=True, stdout=sp, stdin=None)
         proc.communicate()
-        end_timer = time.time() - start_timer
-        # print(f"Ended after: {end_timer:.2f}s\n")
+
+        if verbose:
+            end_timer = time.time() - start_timer
+            print(f"Ended after: {end_timer:.2f}s\n")
 
 
 @dataclass
