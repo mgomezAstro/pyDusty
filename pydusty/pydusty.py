@@ -11,6 +11,7 @@ from typing import Union, List, Optional
 class DustyInp:
     model_name: str
     exe_path: Union[str, Path]
+    project_dir: str | Path = Path.cwd()
 
     def __post_init__(self) -> None:
         self._dusty_logger = logging.getLogger(__name__)
@@ -41,7 +42,10 @@ class DustyInp:
             "m": 2,
         }
 
-        self.output_path = Path.cwd() / "output/"
+        if isinstance(self.project_dir, str):
+            self.project_dir = Path(self.project_dir)
+
+        self.output_path = self.project_dir
         if not self.output_path.exists():
             self.output_path.mkdir()
         self.full_model_name = self.output_path / self.model_name
