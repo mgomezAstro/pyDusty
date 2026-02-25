@@ -8,6 +8,8 @@ Created on Tue Mar  4 16:22:20 2025
 
 import miepython as mie
 import numpy as np
+from scipy.interpolate import interp1d
+from scipy.integrate import trapezoid as trapz
 import os
 import sys
 
@@ -247,3 +249,45 @@ def thermal_emission(
             np.savetxt(f"./{grain_type}_opac.txt", opac)
 
     return (dust_mass * solmass_to_grams) * bb * opac / distance**2
+
+def ConvolveFilter(wave, flux, wfilt, ffilt, returnType="fnu"):
+    """
+    Return the magnitude in the desired system.
+
+    Inputs:
+    --------
+    wave: array
+        Wabelength in angstroms. [Ang]
+    flux: array
+        Flux in units flam. [erg/s/cm2/A]
+    wfilt: array
+        Wavelgtnh coverage of the filter  [Ang].
+    ffilt: array
+        Throughtput of the filter.
+    returnType: str
+        Desired system of the magnitude/flux. One of fnu, flam, or AB. (Default. fnu).
+
+    Output:
+    --------
+    value: float (default flux in Fnu)
+        Flux in the desired system.
+    """
+
+    filt_interp = interp1d(
+        wfilt, ffilt, kind="linear", bounds_error=False, fill_value=0.0
+    )
+
+    x = wave.copy()
+    y = flux.copy()
+
+    I1 = trapz(y * filt_interp(x) * x, x)
+    I2 = trapz(filt_interp(x) / x, x) * 2.99792458e18
+
+    if returnType == "fnu":
+        return I1 / I2
+    elif returnType == "AB":
+        return -2.5 * np.log10(I1 / I2) - 48.6
+    elif returnType == "flam":
+        I1 = trapz(y * filt_interp(x), x)
+        I2 = trapz(filt_interp(x), x)
+        return I1 / I2
