@@ -50,8 +50,10 @@ class DustyInp:
             self.output_path.mkdir()
         self.full_model_name = self.output_path / self.model_name
 
-    def set_sphere(self) -> None:
+    def set_sphere(self, set_matrix: bool = False) -> None:
         self.geometry = {"GEOMETRY": "SPHERE"}
+        if set_matrix:
+            self.geometry = {"GEOMETRY": "SPHERE_MATRIX"}
 
     def set_density_profile(
         self,
