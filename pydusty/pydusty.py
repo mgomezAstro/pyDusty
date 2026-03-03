@@ -10,10 +10,14 @@ from typing import Union, List, Optional
 @dataclass
 class DustyInp:
     model_name: str
-    exe_path: Union[str, Path]
+    exe_path: Union[str, Path, None] = None
     project_dir: str | Path = Path.cwd()
 
     def __post_init__(self) -> None:
+
+        if self.exe_path is None:
+            self.exe_path = Path(__file__).parent / "bin/dusty"
+
         self._dusty_logger = logging.getLogger(__name__)
         self.geometry: str = ""
         self.geometry_params: dict = {}
@@ -117,7 +121,7 @@ class DustyInp:
 
     def set_star(self, filename: str, shape: str) -> None:
         self.spectral_shape = {
-                "Spectral Shape": shape + "\n" + filename,
+            "Spectral Shape": shape + "\n" + filename,
         }
 
     def set_radiation_strenght(
