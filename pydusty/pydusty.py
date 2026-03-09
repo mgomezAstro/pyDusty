@@ -290,7 +290,7 @@ class DustyInp:
             o.write(self.output_text)
 
     def run(self, verbose=False) -> None:
-        script = f"{self.exe_path} {self.full_model_name}.inp "
+        script = f"{self.exe_path} {self.full_model_name}.inp 2 "
         data_path = pkg.files("pydusty").joinpath("fortran/dustyV4")
         script += str(data_path)
 
