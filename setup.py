@@ -36,9 +36,10 @@ class InstallDUSTYv4(build_py):
 
 setup(
     name="pydusty",
-    version="1.9.10",
+    version="1.10.10",
     packages=find_packages(),
-    package_data={"pydusty": ["data/*.txt", "bin/dusty"], "fortran": ["dustyV4"]},
+    package_data={"pydusty": ["data/*.txt", "bin/dusty", "fortran/dustyV4/**/*"]},
+    include_package_data=True,
     install_requires=["miepython >= 3.0"],
     description="Python wrapper for the radiative transfer code Dusty (v4) originally created by Maia Nenkova (2000ASPC..196...77N).",
     author="M. A. Gomez-Munoz",
