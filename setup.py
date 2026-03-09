@@ -9,12 +9,12 @@ class InstallDUSTYv4(build_py):
     def run(self):
 
         project_root = os.path.abspath(os.path.dirname(__file__))
-        datadir = os.path.join(project_root, "fortran/dustyV4")
-        include = os.path.join(project_root, "fortran/dustyV4")
+        datadir = os.path.join(project_root, "pydusty/fortran/dustyV4")
+        include = os.path.join(project_root, "pydusty/fortran/dustyV4")
         bindir = os.path.join(project_root, "pydusty/bin")
 
         exe = os.path.join(bindir, "dusty")
-        src = "fortran/dustyV4/dusty.f90"
+        src = "pydusty/fortran/dustyV4/dusty.f90"
 
         subprocess.check_call(
             [
@@ -36,7 +36,7 @@ class InstallDUSTYv4(build_py):
 
 setup(
     name="pydusty",
-    version="1.8.10",
+    version="1.9.10",
     packages=find_packages(),
     package_data={"pydusty": ["data/*.txt", "bin/dusty"], "fortran": ["dustyV4"]},
     install_requires=["miepython >= 3.0"],
