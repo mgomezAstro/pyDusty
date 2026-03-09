@@ -1,0 +1,2 @@
+recursive-include pydusty/fortran/dustyV4 *
+recursive-include pydusty/data *
