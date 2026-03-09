@@ -9,7 +9,6 @@ class InstallDUSTYv4(build_py):
     def run(self):
 
         project_root = os.path.abspath(os.path.dirname(__file__))
-        datadir = os.path.join(project_root, "pydusty/fortran/dustyV4")
         include = os.path.join(project_root, "pydusty/fortran/dustyV4")
         bindir = os.path.join(project_root, "pydusty/bin")
 
@@ -22,8 +21,6 @@ class InstallDUSTYv4(build_py):
                 "-O3",
                 "-lgomp",
                 "-fopenmp",
-                "-cpp",
-                f'-DDATADIR_MACRO="{datadir}/"',
                 f"-I{include}",
                 src,
                 "-o",
@@ -36,7 +33,7 @@ class InstallDUSTYv4(build_py):
 
 setup(
     name="pydusty",
-    version="1.10.10",
+    version="1.11.10",
     packages=find_packages(),
     package_data={"pydusty": ["data/*.txt", "bin/dusty", "fortran/dustyV4/**/*"]},
     include_package_data=True,

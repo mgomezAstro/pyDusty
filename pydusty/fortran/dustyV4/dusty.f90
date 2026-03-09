@@ -1,7 +1,7 @@
 !DUSTY RELEASE
 Module common
   implicit none
-  character(len=*), parameter :: DATADIR = DATADIR_MACRO
+  ! character(len=*), parameter :: DATADIR = DATADIR_MACRO
   double precision pi, sigma, Gconst, r_gd, clight, mprot
   parameter (pi=3.141592653589793116)   ! pi
   parameter (sigma=5.67D-08)            ! Stefan-Boltzman constant
@@ -409,15 +409,18 @@ PROGRAM DUSTY
   CHARACTER(len=3) :: suffix
   CHARACTER(len=4) :: verbosity
   CHARACTER(len=235) :: dustyinpfile, path, apath, stdf(7)
+  CHARACTER(len=500) :: datadir
 
   !-------------------------------------------------------
   ! **************************
   ! *** ABOUT THIS VERSION ***
   ! **************************
   ! version= '4.00' set in common as parameter
+  CALL GETARG(1,dustyinpfile)                                              
+  CALL GETARG(2,verbosity) ! verbosity if optional, since a default exists 
+  CALL GETARG(3,datadir)                                                    ! get lambda grid
 
-  ! get lambda grid
-  CALL ReadLambda()
+  CALL ReadLambda(datadir)
   IF (error.ne.0) THEN 
      PRINT*,'something wrong with lambda grid!'
      STOP
@@ -428,8 +431,9 @@ PROGRAM DUSTY
   CALL SYSTEM_CLOCK(COUNT=clock_start)
 
   ! get path of input file, and desired verbosity, as args from command line
-  CALL GETARG(1,dustyinpfile)
-  CALL GETARG(2,verbosity) ! verbosity if optional, since a default exists
+  ! CALL GETARG(1,dustyinpfile)
+  ! CALL GETARG(2,verbosity) ! verbosity if optional, since a default exists
+  ! CALL GETARG(3, datadir)
   if (LEN_TRIM(verbosity) == 0) verbosity = "2"  ! and the default verbosity level is "2"
   read(verbosity(1:2),'(I1)') iVerb ! make it an integer
   if (iVerb > 2) iVerb = 2 ! largest implemented value is 2
@@ -452,7 +456,7 @@ PROGRAM DUSTY
         READ(13,'(a)',iostat=io_status) apath
         DO WHILE (io_status.ge.0)
            CALL clean(apath,path,lpath)
-           call rundusty(path,lpath)
+           call rundusty(path,lpath,datadir)
            READ(13,'(a)',iostat=io_status) apath
         END DO
         CLOSE(13)
@@ -463,7 +467,7 @@ PROGRAM DUSTY
              " on on command line."
         apath = dustyinpfile(1:)
         CALL clean(apath,path,lpath)
-        call rundusty(path,lpath)
+        call rundusty(path,lpath,datadir)
 
      ! everything else is considered an invalid input file
      ELSE
@@ -481,7 +485,7 @@ END PROGRAM DUSTY
 
 
 !***********************************************************************
-subroutine rundusty(path,lpath)
+subroutine rundusty(path,lpath,datadir)
 !=======================================================================
 ! This subroutine a single DUSTY process, independently of whether it
 ! was specified in a single-model .inp file or in a multi-model .mas
@@ -495,6 +499,7 @@ subroutine rundusty(path,lpath)
   double precision :: tau1, tau2
   double precision, allocatable :: tau(:)
   character(len=235) :: path, nameIn, nameOut, stdf(7)
+  character(len=*) :: datadir
 
   interface
      subroutine GetTau(tau1,tau2,GridType,Nmodel,tau)
@@ -517,7 +522,7 @@ subroutine rundusty(path,lpath)
   if (empty(path).ne.1) then
      call attach(path,lpath,'.inp',nameIn)
      call attach(path,lpath,'.out',nameOut)
-     call Input(nameIn,nameOut,tau1,tau2,GridType,Nmodel)
+     call Input(nameIn,nameOut,tau1,tau2,GridType,Nmodel,datadir)
 
      if (iverb.gt.0) then
         print*,'working on input file: ', trim(nameIn)
@@ -546,7 +551,7 @@ end subroutine rundusty
 
 
 !***********************************************************************
-subroutine ReadLambda()
+subroutine ReadLambda(datadir)
 !=======================================================================
 ! This subroutine reads and checks that the wavelength grid satisfies
 ! certain conditions described in the Manual (all wavelengths are given
@@ -560,11 +565,12 @@ subroutine ReadLambda()
   double precision RDINP
   character str*235
   logical Equal
+  character(len=*) :: datadir
 !-----------------------------------------------------------------------
   Equal = .true.
   error = 0
   ! first open the file with lambda grid
-  open(4, file=DATADIR//'data/lambda_grid.dat', status = 'old')
+  open(4, file=trim(datadir)//'/data/lambda_grid.dat', status = 'old')
   call skip_header(4)
   nL = RDINP(Equal,4,6)
   allocate(lambda(nL))
@@ -810,7 +816,7 @@ subroutine skip_header(iunit)
   return
 end subroutine skip_header
 !***********************************************************************
-subroutine Input(nameIn,nameOut,tau1,tau2,GridType,Nmodel)
+subroutine Input(nameIn,nameOut,tau1,tau2,GridType,Nmodel,datadir)
 !======================================================================
 ! This subroutine reads input data from the file 'filename.inp'. It
 ! utilizes the function RDINP and subroutine RDINPS2 
@@ -841,6 +847,7 @@ subroutine Input(nameIn,nameOut,tau1,tau2,GridType,Nmodel)
   character(len=235) :: stdf(7), str, nameIn, nameOut, nameEta,& 
        nameTau, strg, namepsf
   character(len=72) :: strpow,lamstr(nOutput)
+  character(len=*) :: datadir
   character(len=235),allocatable :: nameNK(:),nameQ(:)
   integer :: i, istop, GridType,Nmodel,L,top,iG,iFiles, &
        nFiles,szds, EtaOK, ang_type, imu, ioverflw
@@ -1170,13 +1177,13 @@ subroutine Input(nameIn,nameOut,tau1,tau2,GridType,Nmodel)
   end if
   ! Assign supported dust filenames to stdf
   do iG = 1,7
-     if (iG.eq.1) write(stdf(iG),'(a)')DATADIR//"data/stnd_dust_lib/OssOdef.nk"
-     if (iG.eq.2) write(stdf(iG),'(a)')DATADIR//"data/stnd_dust_lib/OssOrich.nk"
-     if (iG.eq.3) write(stdf(iG),'(a)')DATADIR//"data/stnd_dust_lib/sil-dlee.nk"
-     if (iG.eq.4) write(stdf(iG),'(a)')DATADIR//"data/stnd_dust_lib/gra-par-draine.nk"
-     if (iG.eq.5) write(stdf(iG),'(a)')DATADIR//"data/stnd_dust_lib/gra-perp-draine.nk"
-     if (iG.eq.6) write(stdf(iG),'(a)')DATADIR//"data/stnd_dust_lib/amC-hann.nk"
-     if (iG.eq.7) write(stdf(iG),'(a)')DATADIR//"data/stnd_dust_lib/SiC-peg.nk"
+     if (iG.eq.1) write(stdf(iG),'(a)')trim(datadir)//"/data/stnd_dust_lib/OssOdef.nk"
+     if (iG.eq.2) write(stdf(iG),'(a)')trim(datadir)//"/data/stnd_dust_lib/OssOrich.nk"
+     if (iG.eq.3) write(stdf(iG),'(a)')trim(datadir)//"/data/stnd_dust_lib/sil-dlee.nk"
+     if (iG.eq.4) write(stdf(iG),'(a)')trim(datadir)//"/data/stnd_dust_lib/gra-par-draine.nk"
+     if (iG.eq.5) write(stdf(iG),'(a)')trim(datadir)//"/data/stnd_dust_lib/gra-perp-draine.nk"
+     if (iG.eq.6) write(stdf(iG),'(a)')trim(datadir)//"/data/stnd_dust_lib/amC-hann.nk"
+     if (iG.eq.7) write(stdf(iG),'(a)')trim(datadir)//"/data/stnd_dust_lib/SiC-peg.nk"
   enddo
   ! user supplied n and k:
   if (top.eq.2) then
