@@ -259,19 +259,14 @@ class EmceeRunner:
     y_err: np.ndarray
     model: Model
     params: Parameters
-
-    continue_from_last: bool = False
-    suffix: str = "_1"
-    n_proc: int = 1
-    steps: int = 1000
-    chains: int = 32
-
-    def sample_prior(self):
+    kargs_model: dict | None = None
+    
+    def sample_prior(self, chains):
         stack = []
         for param in self.params:
             if param.vary:
                 stack.append(
-                    np.random.uniform(param.min, param.max, self.chains)
+                    np.random.uniform(param.min, param.max, chains)
                 )
         return np.column_stack(stack)
 
@@ -293,7 +288,10 @@ class EmceeRunner:
         if not np.isfinite(lg_prior):
             return -np.inf, -np.inf
 
-        model = self.model(self.params)
+        if self.kargs_model is not None:
+            model = partial(self.model, **self.kargs_model)(params=self.params)
+        else:
+            model = self.model(params=self.params)
         wave, flux = model.compute()
 
         flux = np.interp(self.x_obs, wave, flux)
@@ -307,25 +305,31 @@ class EmceeRunner:
 
         return -0.5 * chi2, np.log10(scale)
 
-    def run(self):
+    def run(self,
+        continue_from_last: bool = False,
+        suffix: str = "_1",
+        n_proc: int = 1,
+        steps: int = 1000,
+        chains: int = 32,
+            ):
 
         init_positions = None
-        backend = emcee.backends.HDFBackend(f"emcee_{self.suffix}.h5")
+        backend = emcee.backends.HDFBackend(f"emcee_{suffix}.h5")
         ndim = len(self.params.get_free_param_values())
-        if not self.continue_from_last:
-            init_positions = self.sample_prior()
-            backend.reset(self.chains, ndim)
+        if not continue_from_last:
+            init_positions = self.sample_prior(chains)
+            backend.reset(chains, ndim)
 
-        with Pool(self.n_proc) as pool:
+        with Pool(n_proc) as pool:
 
             sampler = emcee.EnsembleSampler(
-                self.chains,
+                chains,
                 ndim,
                 self.log_prob,
                 backend=backend,
                 pool=pool,
             )
 
-            sampler.run_mcmc(init_positions, self.steps, progress=True)
+            sampler.run_mcmc(init_positions, steps, progress=True)
 
         return sampler
