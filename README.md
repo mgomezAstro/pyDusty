@@ -1,7 +1,7 @@
 # pyDusty
-Python wrapper for the radiate transfer code DUSTY (v4) (2000ASPC..196...77N). The original
+Python wrapper for the radiative transfer code DUSTY (v4) (2000ASPC..196...77N). The original
 repository is at  [ivezic](https://github.com/ivezic/dusty). The modified version for this 
-python wrapper is here [pyDusty]{https://github.com/mgomezAstro/pyDusty}.
+python wrapper is here [dusty](https://github.com/mgomezAstro/dusty).
 
 ### Requirements
 
@@ -9,7 +9,7 @@ python wrapper is here [pyDusty]{https://github.com/mgomezAstro/pyDusty}.
 - gfortran
 - openmp support (for now is not optional; it will be compiled with `-fopenmp` flag)
 
-A version of DUSTY (V4) will be installed with this package inside the package directory (pydusty/bin/dusty) and will b
+A version of DUSTY (V4) will be installed with this package inside the package directory (pydusty/bin/dusty) and will be 
 used as default.
 
 ### Installation
