@@ -9,6 +9,7 @@ Created on Wed Mar 18 15:22:29 2026
 import numpy as np
 import emcee
 from .pydusty import DustyInp, DustyReader
+from .dust_utils import planck_bb, thermal_emission
 from dataclasses import dataclass
 from abc import abstractmethod, ABC
 from pathlib import Path
@@ -26,12 +27,20 @@ class Model(ABC):
 
     @staticmethod
     @abstractmethod
-    def scale_parameter(**args) -> float:
-        return 1.0
+    def scale_parameter(y_obs, y_obs_err, y_mod) -> float:
+        pass
 
     @abstractmethod
-    def _model(self, **args) -> callable:
+    def _fn_model(**args):
         pass
+
+    def _model(self, **args) -> callable:
+        not_varied_params = {}
+        for param in self.params:
+            if not param.vary:
+                not_varied_params[param.name] = param.value
+
+        return partial(self._fn_model, **not_varied_params)
 
 
 @dataclass
@@ -53,6 +62,13 @@ class Parameters:
         if isinstance(param, tuple | list):
             param = Parameter(*param)
         self.param_dict[param.name] = param
+
+    def get_free_param_values(self):
+        p = {}
+        for name in self.param_dict:
+            if self.param_dict[name].vary:
+                p[name] = self.param_dict[name].value
+        return p
 
     def __getitem__(self, name: str) -> Parameter:
         return self.param_dict[name]
@@ -114,7 +130,7 @@ class DustyModel(Model):
             "graphite": "grf-DL",
         }
 
-    def _dust_model(self, teff, td, tau, dust_abund, project_dir):
+    def _fn_model(self, teff, td, tau, dust_abund, project_dir):
 
         dust_1 = self._dust_types[self.dust_type_1]
         dust_2 = self._dust_types[self.dust_type_2]
@@ -148,15 +164,6 @@ class DustyModel(Model):
         inp.print_inp_file()
         inp.run()
 
-    def _model(self):
-
-        not_varied_params = {}
-        for param in self.params:
-            if not param.vary:
-                not_varied_params[param.name] = param.value
-
-        return partial(self._dust_model, **not_varied_params)
-
     @staticmethod
     def scale_parameter(y_obs, y_obs_err, y_mod):
 
@@ -165,27 +172,84 @@ class DustyModel(Model):
 
         return num_log_s / den_log_s
 
-    def compute(self, project_dir: str | Path = "./output"):
+    def compute(
+        self,
+        keep_output_files: bool = False,
+        project_dir: str | Path = "./output",
+    ):
 
         if isinstance(project_dir, str):
             project_dir = Path(project_dir)
 
-        varied_params = {}
-        for param in self.params:
-            if param.vary:
-                varied_params[param.name] = param.value
+        varied_params = self.params.get_free_param_values()
 
-        self._model()(**varied_params, project_dir=project_dir)
+        if keep_output_files:
+            self._model()(**varied_params, project_dir=project_dir)
+            mod = DustyReader(model_name=str(project_dir / self.model_name))
+            wave, flux = mod.get_spectra()
+        else:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                project_dir = Path(tmpdir)
+                self._model()(**varied_params, project_dir=project_dir)
+                mod = DustyReader(
+                    model_name=str(project_dir / self.model_name)
+                )
+                wave, flux = mod.get_spectra()
 
-        mod = DustyReader(model_name=str(project_dir / self.model_name))
-        wave, flux = mod.get_spectra()
-        # data_output = mod.get_output_data()
         flux = flux[0]
 
         wave = wave[flux > 0.0]
         flux = flux[flux > 0.0]
 
         return wave, flux
+
+
+@dataclass
+class BBModel(Model):
+    params: Parameters | None = None
+    teff: float | None = None
+    log_scale: float | None = None
+
+    def __post_init__(self):
+        if self.params is None:
+            if any(
+                [
+                    self.teff is None,
+                    self.radius is None,
+                ]
+            ):
+                raise ValueError(
+                    "You must specifiy either params or teff and log_scale."
+                )
+
+            self.params = Parameters()
+            self.params.add(
+                Parameter("teff", self.teff, True, 2000.0, 30000.0)
+            )
+            self.params.add(
+                Parameter("log_scale", self.radius, True, -np.inf, np.inf)
+            )
+        self.wave = np.linspace(0.1, 20, 1500)
+
+    def _fn_model(self, teff, log_scale):
+        flux = np.pi * planck_bb(self.wave / 1e4, teff, output_units="lam")
+        lam = self.wave * 1e4
+
+        shape_flux = lam * flux / np.trapezoid(flux, lam)
+
+        return shape_flux * 10**log_scale
+
+    @staticmethod
+    def scale_parameter(y_obs, y_obs_err, y_mod):
+        return 1.0
+
+    def compute(self):
+
+        varied_params = self.params.get_free_param_values()
+
+        flux = self._model()(**varied_params)
+
+        return self.wave, flux
 
 
 @dataclass
@@ -221,17 +285,16 @@ class EmceeRunner:
 
     def log_prob(self, theta):
 
-        k = 0
-        for param in self.params:
-            if param.vary:
-                self.params[param.name].value = theta[k]
-                k += 1
+        names_varied = [param.name for param in self.params if param.vary]
+        for k, val in enumerate(theta):
+            self.params[names_varied[k]].value = val
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            project_dir = Path(tmpdir)
+        lg_prior = self.log_prior()
+        if not np.isfinite(lg_prior):
+            return -np.inf, -np.inf
 
-            model = self.model(self.params)
-            wave, flux = model.compute(project_dir=project_dir)
+        model = self.model(self.params)
+        wave, flux = model.compute()
 
         flux = np.interp(self.x_obs, wave, flux)
 
@@ -247,23 +310,22 @@ class EmceeRunner:
     def run(self):
 
         init_positions = None
+        backend = emcee.backends.HDFBackend(f"emcee_{self.suffix}.h5")
+        ndim = len(self.params.get_free_param_values())
         if not self.continue_from_last:
             init_positions = self.sample_prior()
+            backend.reset(self.chains, ndim)
 
-        with emcee.backends.HDFBackend(f"emcee_{self.suffix}.h5") as backend:
-            if not self.continue_from_last:
-                backend.reset(self.chains, len(init_positions[0]))
+        with Pool(self.n_proc) as pool:
 
-            with Pool(self.n_proc) as pool:
+            sampler = emcee.EnsembleSampler(
+                self.chains,
+                ndim,
+                self.log_prob,
+                backend=backend,
+                pool=pool,
+            )
 
-                sampler = emcee.EnsembleSampler(
-                    self.chains,
-                    len(init_positions[0]),
-                    self.log_prob,
-                    backend=backend,
-                    pool=pool,
-                )
-
-                sampler.run_mcmc(init_positions, self.steps, progress=True)
+            sampler.run_mcmc(init_positions, self.steps, progress=True)
 
         return sampler
