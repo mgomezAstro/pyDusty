@@ -33,7 +33,7 @@ class InstallDUSTYv4(build_py):
 
 setup(
     name="pydusty",
-    version="2.13.10",
+    version="2.14.10",
     packages=find_packages(),
     package_data={"pydusty": ["data/*.txt", "bin/dusty", "fortran/dustyV4/**/*"]},
     include_package_data=True,

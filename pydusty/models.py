@@ -20,6 +20,7 @@ import tempfile
 
 @dataclass
 class Model(ABC):
+    params: Parameters = None
 
     @abstractmethod
     def compute(self, **args) -> tuple:
@@ -311,13 +312,16 @@ class EmceeRunner:
         n_proc: int = 1,
         steps: int = 1000,
         chains: int = 32,
+        p0: list | None = None,
             ):
 
         init_positions = None
         backend = emcee.backends.HDFBackend(f"emcee_{suffix}.h5")
         ndim = len(self.params.get_free_param_values())
         if not continue_from_last:
-            init_positions = self.sample_prior(chains)
+            init_positions = p0
+            if p0 is None:
+                init_positions = self.sample_prior(chains)
             backend.reset(chains, ndim)
 
         with Pool(n_proc) as pool:
