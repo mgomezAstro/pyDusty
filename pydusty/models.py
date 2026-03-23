@@ -20,7 +20,6 @@ import tempfile
 
 @dataclass
 class Model(ABC):
-    params: Parameters = None
 
     @abstractmethod
     def compute(self, **args) -> tuple:
