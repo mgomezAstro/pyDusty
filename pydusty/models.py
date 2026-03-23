@@ -320,7 +320,9 @@ class EmceeRunner:
         if not continue_from_last:
             init_positions = p0
             if p0 is None:
+                print("Not initial positions set. Using uniform initial values.")
                 init_positions = self.sample_prior(chains)
+                print(init_positions)
             backend.reset(chains, ndim)
 
         with Pool(n_proc) as pool:
