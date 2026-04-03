@@ -7,7 +7,6 @@ Created on Wed Mar 18 15:22:29 2026
 """
 
 import numpy as np
-from scipy.stats import norm
 import emcee
 from .pydusty import DustyInp, DustyReader
 from .dust_utils import planck_bb
@@ -323,17 +322,9 @@ class EmceeRunner:
             y_obs=self.y_obs[no_limits], y_obs_err=self.y_err[no_limits], y_mod=flux[no_limits]
         )
 
-        chi2 = -0.5 * np.sum((self.y_obs[no_limits] - flux[no_limits] * scale) ** 2 / sigma2)
+        chi2 = np.sum((self.y_obs - flux * scale) ** 2 / sigma2)
 
-        if self.mask_uplims.sum() > 0:
-            for fl_obs, fl_mod, fl_obs_err in zip(
-                self.y_obs[self.mask_uplims],
-                flux[self.mask_uplims],
-                self.y_err[self.mask_uplims],
-            ):
-                chi2 += norm.logcdf(fl_obs, loc=fl_mod, scale=fl_obs_err)
-
-        return chi2, np.log10(scale)
+        return -0.5 * chi2, np.log10(scale)
 
     def run(self,
         continue_from_last: bool = False,
