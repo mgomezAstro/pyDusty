@@ -9,10 +9,11 @@ Created on Wed Mar 18 15:22:29 2026
 import numpy as np
 import emcee
 from .pydusty import DustyInp, DustyReader
-from .dust_utils import planck_bb, thermal_emission
+from .dust_utils import planck_bb
 from dataclasses import dataclass
 from abc import abstractmethod, ABC
 from pathlib import Path
+import importlib.resources as pkg
 from multiprocessing import Pool
 from functools import partial
 import tempfile
@@ -128,12 +129,26 @@ class DustyModel(Model):
             "silicate": "Sil-DL",
             "amcarb": "amC-Hn",
             "graphite": "grf-DL",
+            "alumina": "Al2O3-comp.nk",
         }
 
     def _fn_model(self, teff, td, tau, dust_abund, project_dir):
 
         dust_1 = self._dust_types[self.dust_type_1]
         dust_2 = self._dust_types[self.dust_type_2]
+
+        predef_abunds = {dust_1: dust_abund, dust_2: 1.0 - dust_abund}
+        nk_files = None
+        nk_abund = None
+
+        if self.dust_type_1 == "alumina":
+            predef_abunds = {dust_2: 1.0 - dust_abund}
+            nk_files = [str(pkg.files("pydusty").joinpath("fortran/dustyV4/data/Lib_nk") / dust_1)]
+            nk_abund = [dust_abund]
+        if self.dust_type_2 == "alumina":
+            predef_abunds = {dust_1: dust_abund}
+            nk_files = [str(pkg.files("pydusty").joinpath("fortran/dustyV4/data/Lib_nk") / dust_2)]
+            nk_abund = [1.0 - dust_abund]
 
         inp = DustyInp(
             model_name=self.model_name,
@@ -150,8 +165,8 @@ class DustyModel(Model):
         )
         inp.set_grain_size_dist(grain_distribution="MRN")
         inp.set_grains_abund(
-            predef_abund={dust_1: dust_abund, dust_2: 1.0 - dust_abund},
-            subl_temp=2000.0,
+            predef_abund=predef_abunds,
+            subl_temp=2000.0, nk_files=nk_files, nk_abunds=nk_abund,
         )
         inp.set_radiation_strenght(scale_type="T1", scale_value=td)
         inp.set_optical_depth(
