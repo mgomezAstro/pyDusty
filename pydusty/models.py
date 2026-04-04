@@ -373,20 +373,20 @@ class EmceeRunner:
                 print(init_positions)
             backend.reset(chains, ndim)
 
-        # with TemporaryDirectory(dir="/dev/shm/", prefix="emcee_runs_") as tmpdir:
+        with TemporaryDirectory(dir="/dev/shm/", prefix="emcee_runs_") as tmpdir:
 
-        self._tmp_models_path = Path("./output")
+            self._tmp_models_path = Path(tmpdir)
 
-        with Pool(n_proc) as pool:
+            with Pool(n_proc) as pool:
 
-            sampler = emcee.EnsembleSampler(
-                chains,
-                ndim,
-                self.log_prob,
-                backend=backend,
-                pool=pool,
-            )
+                sampler = emcee.EnsembleSampler(
+                    chains,
+                    ndim,
+                    self.log_prob,
+                    backend=backend,
+                    pool=pool,
+                )
 
-            sampler.run_mcmc(init_positions, steps, progress=True)
+                sampler.run_mcmc(init_positions, steps, progress=True)
 
         return sampler
