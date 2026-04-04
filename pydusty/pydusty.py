@@ -39,9 +39,9 @@ class DustyInp:
         self.output_text: str = ">\n"
         self.comments: List[str] = ["*---------------"]
         self.options: dict = {
-            "flux conservation": 0.1,
-            "s": 2,
-            "i": 0,
+            "flux conservation": 0.01,
+            "s": 10,
+            "i": 100,
             "j": 0,
             "r": 2,
             "m": 2,

@@ -17,7 +17,8 @@ from pathlib import Path
 import importlib.resources as pkg
 from multiprocessing import Pool
 from functools import partial
-import tempfile
+import os
+from tempfile import TemporaryDirectory
 
 
 @dataclass
@@ -56,9 +57,7 @@ class Parameter:
 
 class Parameters:
     def __init__(self, *params: Parameter):
-        self.param_dict: dict[str, Parameter] = {
-            param.name: param for param in params
-        }
+        self.param_dict: dict[str, Parameter] = {param.name: param for param in params}
 
     def add(self, param: Parameter | list | tuple) -> None:
         if isinstance(param, tuple | list):
@@ -115,14 +114,10 @@ class DustyModel(Model):
                 )
 
             self.params = Parameters()
-            self.params.add(
-                Parameter("teff", self.teff, True, 2000.0, 30000.0)
-            )
+            self.params.add(Parameter("teff", self.teff, True, 2000.0, 30000.0))
             self.params.add(Parameter("td", self.td, True, 50, 1900.0))
             self.params.add(Parameter("tau", self.tau, True, 1e-4, 100.0))
-            self.params.add(
-                Parameter("dust_abund", self.dust_abund, False, 0, 1.0)
-            )
+            self.params.add(Parameter("dust_abund", self.dust_abund, False, 0, 1.0))
 
     @property
     def _dust_types(self):
@@ -144,11 +139,21 @@ class DustyModel(Model):
 
         if self.dust_type_1 == "alumina":
             predef_abunds = {dust_2: 1.0 - dust_abund}
-            nk_files = [str(pkg.files("pydusty").joinpath("fortran/dustyV4/data/Lib_nk") / dust_1)]
+            nk_files = [
+                str(
+                    pkg.files("pydusty").joinpath("fortran/dustyV4/data/Lib_nk")
+                    / dust_1
+                )
+            ]
             nk_abund = [dust_abund]
         if self.dust_type_2 == "alumina":
             predef_abunds = {dust_1: dust_abund}
-            nk_files = [str(pkg.files("pydusty").joinpath("fortran/dustyV4/data/Lib_nk") / dust_2)]
+            nk_files = [
+                str(
+                    pkg.files("pydusty").joinpath("fortran/dustyV4/data/Lib_nk")
+                    / dust_2
+                )
+            ]
             nk_abund = [1.0 - dust_abund]
 
         inp = DustyInp(
@@ -167,7 +172,9 @@ class DustyModel(Model):
         inp.set_grain_size_dist(grain_distribution="MRN")
         inp.set_grains_abund(
             predef_abund=predef_abunds,
-            subl_temp=2000.0, nk_files=nk_files, nk_abunds=nk_abund,
+            subl_temp=2000.0,
+            nk_files=nk_files,
+            nk_abunds=nk_abund,
         )
         inp.set_radiation_strenght(scale_type="T1", scale_value=td)
         inp.set_optical_depth(
@@ -190,7 +197,6 @@ class DustyModel(Model):
 
     def compute(
         self,
-        keep_output_files: bool = False,
         project_dir: str | Path = "./output",
     ):
 
@@ -199,18 +205,15 @@ class DustyModel(Model):
 
         varied_params = self.params.get_free_param_values()
 
-        if keep_output_files:
-            self._model()(**varied_params, project_dir=project_dir)
-            mod = DustyReader(model_name=str(project_dir / self.model_name))
-            wave, flux = mod.get_spectra()
-        else:
-            with tempfile.TemporaryDirectory() as tmpdir:
-                project_dir = Path(tmpdir)
-                self._model()(**varied_params, project_dir=project_dir)
-                mod = DustyReader(
-                    model_name=str(project_dir / self.model_name)
-                )
-                wave, flux = mod.get_spectra()
+        self._model()(**varied_params, project_dir=project_dir)
+        mod = DustyReader(model_name=str(project_dir / self.model_name))
+        wave, flux = mod.get_spectra()
+        # else:
+        #     with tempfile.TemporaryDirectory() as tmpdir:
+        #         project_dir = Path(tmpdir)
+        #         self._model()(**varied_params, project_dir=project_dir)
+        #         mod = DustyReader(model_name=str(project_dir / self.model_name))
+        #         wave, flux = mod.get_spectra()
 
         flux = flux[0]
 
@@ -225,6 +228,7 @@ class BBModel(Model):
     params: Parameters | None = None
     teff: float | None = None
     log_scale: float | None = None
+    model_name: str = "bb_model"
 
     def __post_init__(self):
         if self.params is None:
@@ -239,12 +243,8 @@ class BBModel(Model):
                 )
 
             self.params = Parameters()
-            self.params.add(
-                Parameter("teff", self.teff, True, 2000.0, 30000.0)
-            )
-            self.params.add(
-                Parameter("log_scale", self.radius, True, -np.inf, np.inf)
-            )
+            self.params.add(Parameter("teff", self.teff, True, 2000.0, 30000.0))
+            self.params.add(Parameter("log_scale", self.radius, True, -np.inf, np.inf))
         self.wave = np.linspace(0.1, 20, 1500)
 
     def _fn_model(self, teff, log_scale):
@@ -259,11 +259,19 @@ class BBModel(Model):
     def scale_parameter(y_obs, y_obs_err, y_mod):
         return 1.0
 
-    def compute(self):
+    def compute(
+        self,
+        project_dir: str | Path = "./output",
+    ):
 
         varied_params = self.params.get_free_param_values()
 
         flux = self._model()(**varied_params)
+
+        np.savetxt(
+            project_dir / f"{self.model_name}_spectrum.txt",
+            np.column_stack((self.wave, flux)),
+        )
 
         return self.wave, flux
 
@@ -281,14 +289,14 @@ class EmceeRunner:
     def __post_init__(self):
         if self.mask_uplims is None:
             self.mask_uplims = np.zeros_like(self.x_obs, dtype=bool)
-    
+            self._names_varied = [param.name for param in self.params if param.vary]
+            self._tmp_models_path = None
+
     def sample_prior(self, chains):
         stack = []
         for param in self.params:
             if param.vary:
-                stack.append(
-                    np.random.uniform(param.min, param.max, chains)
-                )
+                stack.append(np.random.uniform(param.min, param.max, chains))
         return np.column_stack(stack)
 
     def log_prior(self):
@@ -301,9 +309,8 @@ class EmceeRunner:
 
     def log_prob(self, theta):
 
-        names_varied = [param.name for param in self.params if param.vary]
         for k, val in enumerate(theta):
-            self.params[names_varied[k]].value = val
+            self.params[self._names_varied[k]].value = val
 
         lg_prior = self.log_prior()
         if not np.isfinite(lg_prior):
@@ -313,17 +320,24 @@ class EmceeRunner:
             model = partial(self.model, **self.kargs_model)(params=self.params)
         else:
             model = self.model(params=self.params)
-        wave, flux = model.compute()
+
+        worker_id = os.getpid()
+        scratch_dir = self._tmp_models_path / f"worker_{worker_id}"
+        wave, flux = model.compute(project_dir=scratch_dir)
 
         flux = np.interp(self.x_obs, wave, flux)
 
         no_limits = np.invert(self.mask_uplims)
-        sigma2 = self.y_err[no_limits]**2
+        sigma2 = self.y_err[no_limits] ** 2
         scale = self.model.scale_parameter(
-            y_obs=self.y_obs[no_limits], y_obs_err=self.y_err[no_limits], y_mod=flux[no_limits]
+            y_obs=self.y_obs[no_limits],
+            y_obs_err=self.y_err[no_limits],
+            y_mod=flux[no_limits],
         )
 
-        chi2 = -0.5 * np.sum((self.y_obs[no_limits] - flux[no_limits] * scale) ** 2 / sigma2)
+        chi2 = -0.5 * np.sum(
+            (self.y_obs[no_limits] - flux[no_limits] * scale) ** 2 / sigma2
+        )
 
         if self.mask_uplims.sum() > 0:
             for fl_obs, fl_mod, fl_obs_err in zip(
@@ -335,14 +349,15 @@ class EmceeRunner:
 
         return chi2, np.log10(scale)
 
-    def run(self,
+    def run(
+        self,
         continue_from_last: bool = False,
         suffix: str = "_1",
         n_proc: int = 1,
         steps: int = 1000,
         chains: int = 32,
         p0: list | None = None,
-            ):
+    ):
 
         init_positions = None
         backend = emcee.backends.HDFBackend(f"emcee_{suffix}.h5")
@@ -355,16 +370,20 @@ class EmceeRunner:
                 print(init_positions)
             backend.reset(chains, ndim)
 
-        with Pool(n_proc) as pool:
+        with TemporaryDirectory(dir="/dev/shm/", prefix="emcee_runs_") as tmpdir:
 
-            sampler = emcee.EnsembleSampler(
-                chains,
-                ndim,
-                self.log_prob,
-                backend=backend,
-                pool=pool,
-            )
+            self._tmp_models_path = Path(tmpdir)
 
-            sampler.run_mcmc(init_positions, steps, progress=True)
+            with Pool(n_proc) as pool:
+
+                sampler = emcee.EnsembleSampler(
+                    chains,
+                    ndim,
+                    self.log_prob,
+                    backend=backend,
+                    pool=pool,
+                )
+
+                sampler.run_mcmc(init_positions, steps, progress=True)
 
         return sampler
