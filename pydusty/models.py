@@ -160,7 +160,7 @@ class DustyModel(Model):
             model_name=self.model_name,
             project_dir=str(project_dir),
         )
-        inp.set_sphere()
+        inp.set_sphere(set_matrix=True)
         inp.set_blackbody(temperature=teff)
         inp.set_central_radiation(True)
         inp.set_density_profile(
