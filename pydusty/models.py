@@ -203,6 +203,9 @@ class DustyModel(Model):
         if isinstance(project_dir, str):
             project_dir = Path(project_dir)
 
+        if not project_dir.exists():
+            project_dir.mkdir(parents=True, exist_ok=True)
+
         varied_params = self.params.get_free_param_values()
 
         self._model()(**varied_params, project_dir=project_dir)
