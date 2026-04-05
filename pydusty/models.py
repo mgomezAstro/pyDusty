@@ -290,7 +290,7 @@ class EmceeRunner:
             self._tmp_models_path = None
 
     def sample_prior(self, chains):
-        np.random.seed(os.getpgid())
+        np.random.seed(os.getpid())
         stack = []
         for param in self.params:
             if param.vary:
