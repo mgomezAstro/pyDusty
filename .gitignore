@@ -3,6 +3,7 @@ bdist.linux-x86_64
 lib
 
 dist
+.vscode
 
 pydusty.egg-info
 pydusty.egg-info:

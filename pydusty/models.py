@@ -211,12 +211,6 @@ class DustyModel(Model):
         self._model()(**varied_params, project_dir=project_dir)
         mod = DustyReader(model_name=str(project_dir / self.model_name))
         wave, flux = mod.get_spectra()
-        # else:
-        #     with tempfile.TemporaryDirectory() as tmpdir:
-        #         project_dir = Path(tmpdir)
-        #         self._model()(**varied_params, project_dir=project_dir)
-        #         mod = DustyReader(model_name=str(project_dir / self.model_name))
-        #         wave, flux = mod.get_spectra()
 
         flux = flux[0]
 
@@ -377,14 +371,24 @@ class EmceeRunner:
 
             self._tmp_models_path = Path(tmpdir)
 
-            with Pool(n_proc) as pool:
+            if n_proc > 1:
+                with Pool(n_proc) as pool:
 
+                    sampler = emcee.EnsembleSampler(
+                        chains,
+                        ndim,
+                        self.log_prob,
+                        backend=backend,
+                        pool=pool,
+                    )
+
+                    sampler.run_mcmc(init_positions, steps, progress=True)
+            else:
                 sampler = emcee.EnsembleSampler(
                     chains,
                     ndim,
                     self.log_prob,
                     backend=backend,
-                    pool=pool,
                 )
 
                 sampler.run_mcmc(init_positions, steps, progress=True)
