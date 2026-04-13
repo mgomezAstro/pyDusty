@@ -286,8 +286,8 @@ class EmceeRunner:
     def __post_init__(self):
         if self.mask_uplims is None:
             self.mask_uplims = np.zeros_like(self.x_obs, dtype=bool)
-            self._names_varied = [param.name for param in self.params if param.vary]
-            self._tmp_models_path = None
+        self._names_varied = [param.name for param in self.params if param.vary]
+        self._tmp_models_path = None
 
     def sample_prior(self, chains):
         np.random.seed(os.getpid())
@@ -368,7 +368,7 @@ class EmceeRunner:
                 print(init_positions)
             backend.reset(chains, ndim)
 
-        with TemporaryDirectory(dir="/dev/shm/", prefix="emcee_runs_") as tmpdir:
+        with TemporaryDirectory(prefix="emcee_runs_") as tmpdir:
 
             self._tmp_models_path = Path(tmpdir)
 
