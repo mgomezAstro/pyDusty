@@ -232,7 +232,7 @@ class BBModel(Model):
             if any(
                 [
                     self.teff is None,
-                    self.radius is None,
+                    self.log_scale is None,
                 ]
             ):
                 raise ValueError(
@@ -241,7 +241,7 @@ class BBModel(Model):
 
             self.params = Parameters()
             self.params.add(Parameter("teff", self.teff, True, 2000.0, 30000.0))
-            self.params.add(Parameter("log_scale", self.radius, True, -np.inf, np.inf))
+            self.params.add(Parameter("log_scale", self.log_scale, True, -np.inf, np.inf))
         self.wave = np.linspace(0.1, 20, 1500)
 
     def _fn_model(self, teff, log_scale):
