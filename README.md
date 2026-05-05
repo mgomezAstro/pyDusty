@@ -78,3 +78,14 @@ ot = mod.get_output_data() #A dictionary with the the output table in the .out f
 ```
 
 See the docstrings for other methods included in pydusty.
+
+## Warranty
+pyDusty is provided as it is. No warranty at all.
+
+## Acknowledgements
+This project acknowledges to be funded by the European Union (**ERC, CET-3PO, 101042610**). Views and opinions expressed
+are however those of the author(s) only and do not necessarily reflect those of the European Union or the European
+Research Council Executive Agency. Neither the European Union nor the granting authority can be held responsible for
+them. We also acknowledge financial support from grant **CEX2024-001451-M** funded by **MICIU/AEI/10.13039/501100011033**
+and the support from the State Research Agency (AEI) of the Ministry of Science, Innovation and Universities (MICIU)
+of the Government of Spain under grant **PID2024-155585NA-I00** funded by **MICIU/AEI/10.13039/501100011033**.

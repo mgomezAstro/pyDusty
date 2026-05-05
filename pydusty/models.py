@@ -128,7 +128,7 @@ class DustyModel(Model):
             "alumina": "Al2O3-comp.nk",
         }
 
-    def _fn_model(self, teff, td, tau, dust_abund, project_dir):
+    def _fn_model(self, teff, td, tau, dust_abund, project_dir, *args, **kwargs):
 
         dust_1 = self._dust_types[self.dust_type_1]
         dust_2 = self._dust_types[self.dust_type_2]
@@ -244,7 +244,7 @@ class BBModel(Model):
             self.params.add(Parameter("log_scale", self.log_scale, True, -np.inf, np.inf))
         self.wave = np.linspace(0.1, 20, 1500)
 
-    def _fn_model(self, teff, log_scale):
+    def _fn_model(self, teff, log_scale, *args, **kwargs):
         flux = np.pi * planck_bb(self.wave / 1e4, teff, output_units="lam")
         lam = self.wave * 1e4
 
