@@ -1,3 +1,5 @@
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/mgomezAstro/pyDusty)
+
 # pyDusty
 Python wrapper for the radiative transfer code DUSTY (v4) (2000ASPC..196...77N). The original
 repository is at  [ivezic](https://github.com/ivezic/dusty). The modified version for this 
