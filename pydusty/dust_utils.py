@@ -12,6 +12,7 @@ from scipy.interpolate import interp1d
 from scipy.integrate import trapezoid as trapz
 import os
 import sys
+import importlib.resources as pkg
 
 
 # Some constants (cgs units)
@@ -101,9 +102,7 @@ def get_opacity(
 
     """
 
-    data_path = os.path.join(
-        os.path.dirname(sys._getframe(1).f_code.co_filename), "data/"
-    )
+    data_path = pkg.files("pydusty").joinpath("data/")
 
     if m is not None and rho is not None:
         x = 2 * np.pi * a / wave
@@ -156,7 +155,7 @@ def get_opacity(
         Qext = np.interp(wave, wl_par, qext, left=0.0, right=0.0)
     else:
         wl, real, im = np.loadtxt(
-            data_path + available_grains[grain_type][0],
+            data_path / available_grains[grain_type][0],
             unpack=True,
             skiprows=1,
         )
