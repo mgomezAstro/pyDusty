@@ -195,6 +195,12 @@ class DustyModel(Model):
 
         return num_log_s / den_log_s
 
+    
+    @staticmethod
+    def denormalize_radius(rin_model: float, l_bol: float):
+        return rin_model + 0.5 * (l_bol - 4.0)
+
+
     def compute(
         self,
         project_dir: str | Path = "./output",
@@ -287,6 +293,8 @@ class EmceeRunner:
     model: Model
     params: Parameters
     mask_uplims: np.ndarray | None = None
+    vel_constrain: list[float] | None = None
+    denorm_rin: bool = False
     kargs_model: dict | None = None
 
     def __post_init__(self):
@@ -318,7 +326,7 @@ class EmceeRunner:
 
         lg_prior = self.log_prior()
         if not np.isfinite(lg_prior):
-            return -np.inf, -np.inf
+            return -np.inf, -np.inf, -np.inf
 
         if self.kargs_model is not None:
             model = partial(self.model, **self.kargs_model)(params=self.params)
@@ -351,7 +359,23 @@ class EmceeRunner:
             ):
                 chi2 += norm.logcdf(fl_obs, loc=fl_mod, scale=fl_obs_err)
 
-        return chi2, np.log10(scale)
+        rin_denorm = 0.0
+        if self.denorm_rin or self.vel_constrain is not None:
+            mod_table = model.get_output_data()
+            rin_model = np.log10(float(mod_table["R1"][0]))
+            rin_denorm = model.denormalize_radius(rin_model, np.log10(scale))
+
+        if self.vel_constrain is not None:
+            # calculate v_rad from the model
+            epoch = self.vel_constrain[1] * 86400.0 # convert to seconds
+            v_max = self.vel_constrain[0] * 1e5 # convert to cm/s
+            log_Rout_max = np.log10(v_max * epoch)
+            log_Rin_max = log_Rout_max - np.log10(model.thickness)
+
+            if not (13.0 < rin_denorm < log_Rin_max):
+                return -np.inf, -np.inf, -np.inf
+
+        return chi2, np.log10(scale), rin_denorm
 
     def run(
         self,
