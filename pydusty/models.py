@@ -300,23 +300,24 @@ class ThermalEmissionModel(Model):
     model_name: str = "thermal_emission_model"
 
     def __post_init__(self):
-        if any(
-            [
-                self.teff is None,
-                self.td is None,
-                self.dust_mass is None,
-                self.log_radius is None,
-            ]
-        ):
-            raise ValueError(
-                "You must specifiy either params or teff, td, dust_mass and log_radius."
-            )
+        if self.params is None:
+            if any(
+                [
+                    self.teff is None,
+                    self.td is None,
+                    self.dust_mass is None,
+                    self.log_radius is None,
+                ]
+            ):
+                raise ValueError(
+                    "You must specifiy either params or teff, td, dust_mass and log_radius."
+                )
 
-        self.params = Parameters()
-        self.params.add(Parameter("teff", self.teff, True, 2000.0, 30000.0))
-        self.params.add(Parameter("td", self.td, True, 50, 1900.0))
-        self.params.add(Parameter("log_radius", self.log_radius, True, 13.0, 18.0))
-        self.params.add(Parameter("dust_mass", self.dust_mass, True, -9, 0))
+            self.params = Parameters()
+            self.params.add(Parameter("teff", self.teff, True, 2000.0, 30000.0))
+            self.params.add(Parameter("td", self.td, True, 50, 1900.0))
+            self.params.add(Parameter("log_radius", self.log_radius, True, 13.0, 18.0))
+            self.params.add(Parameter("dust_mass", self.dust_mass, True, -9, 0))
 
         self.wave = np.linspace(0.15, 20, 1500)
 
