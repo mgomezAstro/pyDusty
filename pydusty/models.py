@@ -326,7 +326,7 @@ class ThermalEmissionModel(Model):
 
     def _fn_model(self, teff, td, dust_mass, log_radius, *args, **kwargs):
         bb_flux = np.pi * _planck_bb(self.wave / 1e4, teff, output_units="nu")
-        bb_flux *= (10 ** log_radius / (self.distance * 3.08567758e18)) ** 2
+        bb_flux *= (10 ** log_radius / (self.distance * 3.08567758e24)) ** 2
 
         ir_flux = _thermal_emission(
             wave=self.wave,
@@ -341,7 +341,7 @@ class ThermalEmissionModel(Model):
         total_flux = (bb_flux + ir_flux) * (2.99792458e14 / self.wave)
 
         if self.unit == "nuLnu":
-            total_flux *= 4 * np.pi * (self.distance * 3.08567758e18) ** 2 / 3.828e+33 # in solar units
+            total_flux *= 4 * np.pi * (self.distance * 3.08567758e24) ** 2 / 3.828e+33 # in solar units
 
         return total_flux
 
