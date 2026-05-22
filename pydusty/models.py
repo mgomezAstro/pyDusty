@@ -285,6 +285,7 @@ class BBModel(Model):
         return self.wave, flux
 
 
+@dataclass
 class ThermalEmissionModel(Model):
     params: Parameters | None = None
     teff: float | None = None
