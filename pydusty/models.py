@@ -445,7 +445,7 @@ class EmceeRunner:
 
         rin_denorm = 0.0
         if self.denorm_rin or self.vel_constrain is not None:
-            mod_table = model.get_output_data()
+            mod_table = _dustyreader(model_name=str(scratch_dir / model.model_name)).get_output_data()
             rin_model = np.log10(float(mod_table["R1"][0]))
             rin_denorm = model.denormalize_radius(rin_model, np.log10(scale))
 
