@@ -451,13 +451,9 @@ class EmceeRunner:
 
         if self.vel_constrain is not None:
             # calculate v_rad from the model
-            epoch = self.vel_constrain[1] * 86400.0  # convert to seconds
-            v_max = self.vel_constrain[0] * 1e5  # convert to cm/s
-            log_Rout_max = np.log10(v_max * epoch)
-            log_Rin_max = log_Rout_max - np.log10(model.thickness)
-
-            if not (13.0 < rin_denorm < log_Rin_max):
-                return -np.inf, -np.inf, -np.inf
+            r_out = rin_denorm + np.log10(model.thickness)
+            vlog = r_out - np.log10(8.64e9 * self.vel_constrain[1])
+            chi2 += -0.5 * ((vlog - np.log10(self.vel_constrain[0]))/0.3)**2
 
         return chi2, np.log10(scale), rin_denorm
 
