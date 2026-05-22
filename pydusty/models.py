@@ -10,7 +10,7 @@ import numpy as np
 from scipy.stats import norm
 import emcee
 from .pydusty import DustyInp as _dustyinp, DustyReader as _dustyreader
-from .dust_utils import _planck_bb, _thermal_emission
+from .dust_utils import planck_bb as _planck_bb, thermal_emission as _thermal_emission
 from dataclasses import dataclass
 from abc import abstractmethod, ABC
 from pathlib import Path
