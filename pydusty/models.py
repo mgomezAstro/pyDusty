@@ -9,8 +9,8 @@ Created on Wed Mar 18 15:22:29 2026
 import numpy as np
 from scipy.stats import norm
 import emcee
-from .pydusty import DustyInp, DustyReader
-from .dust_utils import planck_bb
+from .pydusty import DustyInp as _dustyinp, DustyReader as _dustyreader
+from .dust_utils import _planck_bb, _thermal_emission
 from dataclasses import dataclass
 from abc import abstractmethod, ABC
 from pathlib import Path
@@ -156,7 +156,7 @@ class DustyModel(Model):
             ]
             nk_abund = [1.0 - dust_abund]
 
-        inp = DustyInp(
+        inp = _dustyinp(
             model_name=self.model_name,
             project_dir=str(project_dir),
         )
@@ -195,11 +195,9 @@ class DustyModel(Model):
 
         return num_log_s / den_log_s
 
-    
     @staticmethod
     def denormalize_radius(rin_model: float, l_bol: float):
         return rin_model + 0.5 * (l_bol - 4.0)
-
 
     def compute(
         self,
@@ -215,7 +213,7 @@ class DustyModel(Model):
         varied_params = self.params.get_free_param_values()
 
         self._model()(**varied_params, project_dir=project_dir)
-        mod = DustyReader(model_name=str(project_dir / self.model_name))
+        mod = _dustyreader(model_name=str(project_dir / self.model_name))
         wave, flux = mod.get_spectra()
 
         flux = flux[0]
@@ -247,11 +245,13 @@ class BBModel(Model):
 
             self.params = Parameters()
             self.params.add(Parameter("teff", self.teff, True, 2000.0, 30000.0))
-            self.params.add(Parameter("log_scale", self.log_scale, True, -np.inf, np.inf))
+            self.params.add(
+                Parameter("log_scale", self.log_scale, True, -np.inf, np.inf)
+            )
         self.wave = np.linspace(0.1, 20, 1500)
 
     def _fn_model(self, teff, log_scale, *args, **kwargs):
-        flux = np.pi * planck_bb(self.wave / 1e4, teff, output_units="lam")
+        flux = np.pi * _planck_bb(self.wave / 1e4, teff, output_units="lam")
         lam = self.wave * 1e4
 
         shape_flux = lam * flux / np.trapezoid(flux, lam)
@@ -261,6 +261,88 @@ class BBModel(Model):
     @staticmethod
     def scale_parameter(y_obs, y_obs_err, y_mod):
         return 1.0
+
+    def compute(
+        self,
+        project_dir: str | Path = "./output",
+    ):
+
+        if isinstance(project_dir, str):
+            project_dir = Path(project_dir)
+
+        if not project_dir.exists():
+            project_dir.mkdir(parents=True, exist_ok=True)
+
+        varied_params = self.params.get_free_param_values()
+
+        flux = self._model()(**varied_params)
+
+        np.savetxt(
+            project_dir / f"{self.model_name}_spectrum.txt",
+            np.column_stack((self.wave, flux)),
+        )
+
+        return self.wave, flux
+
+
+class ThermalEmissionModel(Model):
+    params: Parameters | None = None
+    teff: float | None = None
+    td: float | None = None
+    dust_mass: float | None = None
+    distance: float | None = None
+    log_radius: float | None = None
+    distance_unit: str = "Mpc"
+    a: float = 0.1
+    dusty_type: str = "silicate"
+    unit: str = "nuLnu"
+    model_name: str = "thermal_emission_model"
+
+    def __post_init__(self):
+        if any(
+            [
+                self.teff is None,
+                self.td is None,
+                self.dust_mass is None,
+                self.log_radius is None,
+            ]
+        ):
+            raise ValueError(
+                "You must specifiy either params or teff, td, dust_mass and log_radius."
+            )
+
+        self.params = Parameters()
+        self.params.add(Parameter("teff", self.teff, True, 2000.0, 30000.0))
+        self.params.add(Parameter("td", self.td, True, 50, 1900.0))
+        self.params.add(Parameter("log_radius", self.log_radius, True, 13.0, 18.0))
+        self.params.add(Parameter("dust_mass", self.dust_mass, True, -9, 0))
+
+        self.wave = np.linspace(0.15, 20, 1500)
+
+    @staticmethod
+    def scale_parameter(y_obs, y_obs_err, y_mod):
+        return 1.0
+
+    def _fn_model(self, teff, td, dust_mass, log_radius, *args, **kwargs):
+        bb_flux = np.pi * _planck_bb(self.wave / 1e4, teff, output_units="nu")
+        bb_flux *= (10 ** log_radius / (self.distance * 3.08567758e18)) ** 2
+
+        ir_flux = _thermal_emission(
+            wave=self.wave,
+            temperature=td,
+            distance=self.distance,
+            distance_unit=self.distance_unit,
+            dust_mass=10**dust_mass,
+            a=self.a,
+            grain_type=self.dusty_type,
+        )
+
+        total_flux = (bb_flux + ir_flux) * (2.99792458e14 / self.wave)
+
+        if self.unit == "nuLnu":
+            total_flux *= 4 * np.pi * (self.distance * 3.08567758e18) ** 2 / 3.828e+33 # in solar units
+
+        return total_flux
 
     def compute(
         self,
@@ -367,8 +449,8 @@ class EmceeRunner:
 
         if self.vel_constrain is not None:
             # calculate v_rad from the model
-            epoch = self.vel_constrain[1] * 86400.0 # convert to seconds
-            v_max = self.vel_constrain[0] * 1e5 # convert to cm/s
+            epoch = self.vel_constrain[1] * 86400.0  # convert to seconds
+            v_max = self.vel_constrain[0] * 1e5  # convert to cm/s
             log_Rout_max = np.log10(v_max * epoch)
             log_Rin_max = log_Rout_max - np.log10(model.thickness)
 
