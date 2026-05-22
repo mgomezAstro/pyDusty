@@ -291,8 +291,8 @@ class ThermalEmissionModel(Model):
     teff: float | None = None
     td: float | None = None
     dust_mass: float | None = None
-    distance: float | None = None
-    log_radius: float | None = None
+    distance: float = 1.0
+    log_radius: float = 14.0
     distance_unit: str = "Mpc"
     a: float = 0.1
     dusty_type: str = "silicate"
