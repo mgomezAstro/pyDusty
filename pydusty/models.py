@@ -6,24 +6,27 @@ Created on Wed Mar 18 15:22:29 2026
 @author: magm
 """
 
+import importlib.resources as pkg
+import os
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
+from functools import partial
+from multiprocessing import Pool
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
+import emcee
 import numpy as np
 from scipy.stats import norm
-import emcee
-from .pydusty import DustyInp as _dustyinp, DustyReader as _dustyreader
-from .dust_utils import planck_bb as _planck_bb, thermal_emission as _thermal_emission
-from dataclasses import dataclass
-from abc import abstractmethod, ABC
-from pathlib import Path
-import importlib.resources as pkg
-from multiprocessing import Pool
-from functools import partial
-import os
-from tempfile import TemporaryDirectory
+
+from .dust_utils import planck_bb as _planck_bb
+from .dust_utils import thermal_emission as _thermal_emission
+from .pydusty import DustyInp as _dustyinp
+from .pydusty import DustyReader as _dustyreader
 
 
 @dataclass
 class Model(ABC):
-
     @abstractmethod
     def compute(self, **args) -> tuple:
         pass
@@ -86,7 +89,6 @@ class Parameters:
 
 @dataclass
 class DustyModel(Model):
-
     params: Parameters | None = None
     teff: float | None = None
     td: float | None = None
@@ -160,7 +162,7 @@ class DustyModel(Model):
             model_name=self.model_name,
             project_dir=str(project_dir),
         )
-        inp.set_sphere(set_matrix=True)
+        inp.set_sphere(set_matrix=False)
         inp.set_blackbody(temperature=teff)
         inp.set_central_radiation(True)
         inp.set_density_profile(
@@ -327,7 +329,7 @@ class ThermalEmissionModel(Model):
 
     def _fn_model(self, teff, td, dust_mass, log_radius, *args, **kwargs):
         bb_flux = np.pi * _planck_bb(self.wave / 1e4, teff, output_units="nu")
-        bb_flux *= (10 ** log_radius / (self.distance * 3.08567758e24)) ** 2
+        bb_flux *= (10**log_radius / (self.distance * 3.08567758e24)) ** 2
 
         ir_flux = _thermal_emission(
             wave=self.wave,
@@ -342,7 +344,9 @@ class ThermalEmissionModel(Model):
         total_flux = (bb_flux + ir_flux) * (2.99792458e14 / self.wave)
 
         if self.unit == "nuLnu":
-            total_flux *= 4 * np.pi * (self.distance * 3.08567758e24) ** 2 / 3.828e+33 # in solar units
+            total_flux *= (
+                4 * np.pi * (self.distance * 3.08567758e24) ** 2 / 3.828e33
+            )  # in solar units
 
         return total_flux
 
@@ -445,7 +449,9 @@ class EmceeRunner:
 
         rin_denorm = 0.0
         if self.denorm_rin or self.vel_constrain is not None:
-            mod_table = _dustyreader(model_name=str(scratch_dir / model.model_name)).get_output_data()
+            mod_table = _dustyreader(
+                model_name=str(scratch_dir / model.model_name)
+            ).get_output_data()
             rin_model = np.log10(float(mod_table["R1"][0]))
             rin_denorm = model.denormalize_radius(rin_model, np.log10(scale))
 
@@ -453,7 +459,7 @@ class EmceeRunner:
             # calculate v_rad from the model
             r_out = rin_denorm + np.log10(model.thickness)
             vlog = r_out - np.log10(8.64e9 * self.vel_constrain[1])
-            chi2 += -0.5 * ((vlog - np.log10(self.vel_constrain[0]))/0.3)**2
+            chi2 += -0.5 * ((vlog - np.log10(self.vel_constrain[0])) / 0.3) ** 2
 
         return chi2, np.log10(scale), rin_denorm
 
@@ -479,12 +485,10 @@ class EmceeRunner:
             backend.reset(chains, ndim)
 
         with TemporaryDirectory(prefix="emcee_runs_") as tmpdir:
-
             self._tmp_models_path = Path(tmpdir)
 
             if n_proc > 1:
                 with Pool(n_proc) as pool:
-
                     sampler = emcee.EnsembleSampler(
                         chains,
                         ndim,
