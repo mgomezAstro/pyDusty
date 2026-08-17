@@ -6222,6 +6222,14 @@ DOUBLE PRECISION FUNCTION IntETA(paux,iW1,w1,w)
 ! -----------------------------------------------------------------------
   z = dsqrt(w*w-paux*paux)
   z1 = dsqrt(w1*w1-paux*paux)
+  ! Fix suggested by @gtomass in the original DUSTY repository.
+  ! This is mandatory for M4 Mac users!
+  if (z.ne.z) then
+     z = 0.0
+  end if
+  if (z1.ne.z1) then
+     z1 = 0.0
+  end if
   ! integrals calculated by MAPLE
   CALL Maple3(w,z,paux,aux)
   CALL Maple3(w1,z1,paux,aux1)
