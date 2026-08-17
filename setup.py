@@ -1,11 +1,11 @@
 import os
 import subprocess
-from setuptools import setup, find_packages
+
+from setuptools import find_packages, setup
 from setuptools.command.build_py import build_py
 
 
 class InstallDUSTYv4(build_py):
-
     def run(self):
 
         project_root = os.path.abspath(os.path.dirname(__file__))
@@ -33,7 +33,7 @@ class InstallDUSTYv4(build_py):
 
 setup(
     name="pydusty",
-    version="2.17.13",
+    version="2.18.13",
     packages=find_packages(),
     package_data={"pydusty": ["data/*.txt", "bin/dusty", "fortran/dustyV4/**/*"]},
     include_package_data=True,
