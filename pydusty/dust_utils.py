@@ -6,14 +6,14 @@ Created on Tue Mar  4 16:22:20 2025
 @author: magm
 """
 
-import miepython as mie
-import numpy as np
-from scipy.interpolate import interp1d
-from scipy.integrate import trapezoid as trapz
+import importlib.resources as pkg
 import os
 import sys
-import importlib.resources as pkg
 
+import miepython as mie
+import numpy as np
+from scipy.integrate import trapezoid as trapz
+from scipy.interpolate import interp1d
 
 # Some constants (cgs units)
 k_b = 1.380649e-16
@@ -111,10 +111,8 @@ def get_opacity(
         return 3.0 * Qext / (4.0 * rho * a)
 
     elif (m is None and rho is not None) or (m is not None and rho is None):
-        raise ValueError(
-                "You must specify the density rho when using custom 'm'."
-            )
-        
+        raise ValueError("You must specify the density rho when using custom 'm'.")
+
     available_grains = {
         "silicate": ["silicate.txt", 3.3],
         "amcarb": ["am-carb.txt", 1.81],
@@ -123,18 +121,16 @@ def get_opacity(
 
     grain_type = grain_type.lower()
     if grain_type not in available_grains.keys():
-        raise ValueError(
-            f"Grain type not available.\nUse one of : {available_grains}."
-        )
+        raise ValueError(f"Grain type not available.\nUse one of : {available_grains}.")
 
     if grain_type == "graphite":
         wl_par, real_par, im_par = np.loadtxt(
-            data_path + available_grains[grain_type][0] + "par.txt",
+            data_path / available_grains[grain_type][0] + "par.txt",
             skiprows=1,
             unpack=True,
         )
         wl_perp, real_perp, im_perp = np.loadtxt(
-            data_path + available_grains[grain_type][0] + "perp.txt",
+            data_path / available_grains[grain_type][0] + "perp.txt",
             skiprows=1,
             unpack=True,
         )
@@ -248,6 +244,7 @@ def thermal_emission(
             np.savetxt(f"./{grain_type}_opac.txt", opac)
 
     return (dust_mass * solmass_to_grams) * bb * opac / distance**2
+
 
 def ConvolveFilter(wave, flux, wfilt, ffilt, returnType="fnu"):
     """
