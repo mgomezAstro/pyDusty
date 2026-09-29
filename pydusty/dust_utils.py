@@ -125,12 +125,12 @@ def get_opacity(
 
     if grain_type == "graphite":
         wl_par, real_par, im_par = np.loadtxt(
-            data_path / available_grains[grain_type][0] + "par.txt",
+            data_path / (available_grains[grain_type][0] + "par.txt"),
             skiprows=1,
             unpack=True,
         )
         wl_perp, real_perp, im_perp = np.loadtxt(
-            data_path / available_grains[grain_type][0] + "perp.txt",
+            data_path / (available_grains[grain_type][0] + "perp.txt"),
             skiprows=1,
             unpack=True,
         )
