@@ -190,10 +190,21 @@ ot = mod.get_output_data() # A dictionary with the output table in the .out file
 
 See the docstrings for other methods included in pydusty.
 
-## Warranty
-pyDusty is provided as it is. No warranty at all.
+### License
+pyDusty is released under the BSD 3-Clause License (see `LICENSE`).
+It includes a modified version of DUSTY (https://github.com/ivezic/dusty),
+Copyright (c) 2016, Zeljko Ivezic, distributed under the BSD 3-Clause License
+(see `LICENSE-DUSTY`). pyDusty is not endorsed by the authors of DUSTY.
 
-## Acknowledgements
+### Citing
+If you use pyDusty in your research, please cite the following publications:
+- Gómez-Muñoz M. A., et al., 2026: [arXiv](https://arxiv.org/abs/2609.12981)
+
+Also cite the original DUSTY authors:
+- Ivezić Z., et al., 1999: [SciX](https://scixplorer.org/abs/1999ascl.soft11001I/abstract)
+- Nenkova M., Ivezić Z., Elitzur M. 2000: [SciX](https://scixplorer.org/abs/2000ASPC..196...77N/abstract)
+
+### Acknowledgements
 This project acknowledges to be funded by the European Union (**ERC, CET-3PO, 101042610**). Views and opinions expressed
 are however those of the author(s) only and do not necessarily reflect those of the European Union or the European
 Research Council Executive Agency. Neither the European Union nor the granting authority can be held responsible for
