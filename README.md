@@ -1,3 +1,4 @@
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.24194551.svg)](https://doi.org/10.5281/zenodo.24194551)
 
 # pyDusty
 Python wrapper for the radiative transfer code DUSTY (v4) (2000ASPC..196...77N). The original
