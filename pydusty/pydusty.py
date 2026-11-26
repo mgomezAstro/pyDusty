@@ -1,4 +1,5 @@
 import glob
+import re
 import numpy as np
 import subprocess
 import importlib.resources as pkg
@@ -8,6 +9,81 @@ from dataclasses import dataclass
 import logging
 import warnings
 from typing import Union, List, Optional
+
+
+logger = logging.getLogger(__name__)
+
+# Column of each quantity in the DUSTY spectral files (.s###).
+_SPECTRA_COLUMNS = {
+    "fTot": 1,
+    "xAtt": 2,
+    "xDs": 3,
+    "xDe": 4,
+    "fInp": 5,
+    "TauTot": 6,
+    "albedo": 7,
+}
+
+# Keys always present in DustyReader.get_output_data(), in order.
+_OUT_BASE_KEYS = (
+    "tau0", "Ps1/Ps0", "Fi(W/m2)", "R1", "R1/Rc", "theta1",
+    "T1(K)", "Td(K)", "RPr", "error%",
+)
+
+# RESULTS header names written by DUSTY -> output_data keys. Unknown header
+# names are used as keys unchanged.
+_OUT_COLUMN_KEYS = {
+    "tau0": "tau0",
+    "Psi/Psi0": "Ps1/Ps0",
+    "Fi(W/m2)": "Fi(W/m2)",
+    "r1(cm)": "R1",
+    "r1/rc": "R1/Rc",
+    "theta1": "theta1",
+    "T1(K)": "T1(K)",
+    "Td(K)": "Td(K)",
+    "RPr(1)": "RPr",
+    "e(%)": "error%",
+    "Mdot": "Mdot",
+    "Ve": "Ve",
+    "M>": "M>",
+}
+
+# One numeric field of a Fortran-formatted table row. Handles fields glued
+# together (e.g. a 9-char negative number in an e9.2 column), Fortran
+# D exponents, exponents without "E" ("1.00-100") and overflow asterisks.
+_OUT_TOKEN_RE = re.compile(
+    r"\*+"
+    r"|[-+]?(?:nan|inf(?:inity)?)"
+    r"|[-+]?(?:\d+\.?\d*|\.\d+)(?:[EeDd][-+]?\d+|[-+]\d+)?",
+    re.IGNORECASE,
+)
+
+_MISSING_E_RE = re.compile(r"(?<=[\d.])([-+]\d+)$")
+
+
+def _ffloat(s) -> float:
+    """Convert a Fortran-formatted number to float.
+
+    Handles D exponents ("1.0D+02"), 3-digit exponents written without the
+    "E" ("1.0-100", "2.5+101") and overflow fields of asterisks ("****",
+    returned as ``np.nan``).
+    """
+    if isinstance(s, bytes):
+        s = s.decode()
+    s = s.strip()
+    try:
+        return float(s)
+    except ValueError:
+        pass
+    if s and set(s) == {"*"}:
+        return np.nan
+    t = s.upper().replace("D", "E")
+    if "E" not in t:
+        t = _MISSING_E_RE.sub(r"E\1", t)
+    try:
+        return float(t)
+    except ValueError:
+        raise ValueError(f"could not convert Fortran number {s!r} to float")
 
 
 class DustyError(RuntimeError):
@@ -408,57 +484,77 @@ class DustyReader:
 
     @property
     def _get_output_data(self) -> dict:
-        output_data = {
-            "tau0": [],
-            "Ps1/Ps0": [],
-            "Fi(W/m2)": [],
-            "R1": [],
-            "R1/Rc": [],
-            "theta1": [],
-            "T1(K)": [],
-            "Td(K)": [],
-            "RPr": [],
-            "error%": [],
-        }
+        """Parse the RESULTS table of the ``.out`` file.
+
+        Kept as a property for backward compatibility; prefer
+        :meth:`get_output_data`.
+        """
+        output_data = {key: [] for key in _OUT_BASE_KEYS}
 
         with open(str(self.model_name) + ".out", "r") as f:
-            lines = f.readlines()
-            results_index = 0
-            for row in lines:
-                if row.find("RESULTS") != -1:
-                    results_index = lines.index(row) + 5
+            lines = f.read().splitlines()
 
-            for i in range(results_index, results_index + self.n_models):
-                line = lines[i]
+        # Locate the (last) RESULTS block, then its header row and separator.
+        results_idx = None
+        for i, row in enumerate(lines):
+            if "RESULTS" in row:
+                results_idx = i
+        if results_idx is None:
+            raise ValueError(f"No RESULTS block found in {self.model_name}.out")
 
-                data = line.split()
-                output_data["tau0"].append(float(data[1]))
-                output_data["Ps1/Ps0"].append(float(data[2]))
-                output_data["Fi(W/m2)"].append(float(data[3]))
-                output_data["R1"].append(float(data[4]))
-                output_data["R1/Rc"].append(float(data[5]))
-                output_data["theta1"].append(float(data[6]))
-                output_data["T1(K)"].append(float(data[7]))
-                output_data["Td(K)"].append(float(data[8]))
-                output_data["RPr"].append(float(data[9]))
-                output_data["error%"].append(float(data[10]))
-                if len(data) > 11:
-                    if "Mdot" not in output_data:
-                        output_data["Mdot"] = []
-                    output_data["Mdot"].append(float(data[11]))
-                    if "Ve" not in output_data:
-                        output_data["Ve"] = []
-                    output_data["Ve"].append(float(data[12]))
-                    if "M>" not in output_data:
-                        output_data["M>"] = []
-                    output_data["M>"].append(float(data[13]))
+        header = None
+        sep_idx = None
+        for i in range(results_idx + 1, len(lines)):
+            row = lines[i]
+            if header is None:
+                if row.lstrip().startswith("###") and "tau0" in row.lower():
+                    header = row.split()[1:]
+            elif row.strip().startswith("==="):
+                sep_idx = i
+                break
+        if header is None or sep_idx is None:
+            raise ValueError(
+                f"Could not find the RESULTS table header in {self.model_name}.out"
+            )
+
+        keys = [_OUT_COLUMN_KEYS.get(name, name) for name in header]
+        for key in keys:
+            output_data.setdefault(key, [])
+
+        n_rows = 0
+        for row in lines[sep_idx + 1 :]:
+            if n_rows >= self.n_models:
+                break
+            # Drop the optional trailing "#WARNING: ..." text.
+            row = row.split("#", 1)[0]
+            tokens = _OUT_TOKEN_RE.findall(row)
+            # Data rows start with the integer model index.
+            if not tokens or not tokens[0].isdigit():
+                break
+            values = tokens[1:]
+            if len(values) < len(keys):
+                raise ValueError(
+                    f"Malformed RESULTS row in {self.model_name}.out: {row!r}"
+                )
+            for key, value in zip(keys, values):
+                output_data[key].append(_ffloat(value))
+            n_rows += 1
+
+        if n_rows < self.n_models:
+            logger.warning(
+                "%s.out: expected %d model rows in RESULTS, found %d.",
+                self.model_name,
+                self.n_models,
+                n_rows,
+            )
 
         return output_data
 
     def get_comments(self) -> str:
         return self._comments
 
-    def get_output_data(self) -> np.recarray:
+    def get_output_data(self) -> dict:
+        """Return the RESULTS table of the ``.out`` file as a dict of lists."""
         return self._get_output_data
 
     def get_spectra(
@@ -467,71 +563,44 @@ class DustyReader:
         x_unit: str = "um",
     ) -> tuple:
 
+        if y_cont not in _SPECTRA_COLUMNS:
+            raise ValueError(
+                "y_cont must be one of [fTot, xAtt, xDs, xDe, fInp, TauTot, albedo]."
+            )
+        if x_unit.lower() not in ("um", "micron", "ang", "aa", "angstroms",
+                                  "um-1", "micron-1"):
+            raise ValueError("x_unit must be one of [um, Ang, um-1].")
+        if self.n_models < 1:
+            raise ValueError(
+                f"No models to read: n_models={self.n_models} in "
+                f"{self.model_name}.inp."
+            )
+
+        usecols = (0, _SPECTRA_COLUMNS[y_cont])
         skiprows = 6
         seds = []
         for i in range(self.n_models):
             spec_filename = str(self.model_name) + f".s{i + 1:03}"
-            match y_cont:
-                case "fTot":
-                    wave, flux = np.loadtxt(
-                        spec_filename,
-                        skiprows=skiprows,
-                        usecols=(0, 1),
-                        comments="#",
-                        unpack=True,
-                    )
-                case "xAtt":
-                    wave, flux = np.loadtxt(
-                        spec_filename,
-                        skiprows=skiprows,
-                        usecols=(0, 2),
-                        comments="#",
-                        unpack=True,
-                    )
-                case "xDs":
-                    wave, flux = np.loadtxt(
-                        spec_filename,
-                        skiprows=skiprows,
-                        usecols=(0, 3),
-                        comments="#",
-                        unpack=True,
-                    )
-                case "xDe":
-                    wave, flux = np.loadtxt(
-                        spec_filename,
-                        skiprows=skiprows,
-                        usecols=(0, 4),
-                        comments="#",
-                        unpack=True,
-                    )
-                case "fInp":
-                    wave, flux = np.loadtxt(
-                        spec_filename,
-                        skiprows=skiprows,
-                        usecols=(0, 5),
-                        comments="#",
-                        unpack=True,
-                    )
-                case "TauTot":
-                    wave, flux = np.loadtxt(
-                        spec_filename,
-                        skiprows=skiprows,
-                        usecols=(0, 6),
-                        comments="#",
-                        unpack=True,
-                    )
-                case "albedo":
-                    wave, flux = np.loadtxt(
-                        spec_filename,
-                        skiprows=skiprows,
-                        usecols=(0, 7),
-                        comments="#",
-                        unpack=True,
-                    )
-                case _:
-                    raise ValueError(
-                        f"y_cont must be one of [fTot, xAtt, xDs, xDe, fInp, TauTot, albedo]."
-                    )
+            try:
+                wave, flux = np.loadtxt(
+                    spec_filename,
+                    skiprows=skiprows,
+                    usecols=usecols,
+                    comments="#",
+                    unpack=True,
+                )
+            except ValueError:
+                # Rare Fortran number formats (e.g. "1.0-100", "1.0D+02",
+                # "*****"): fall back to the slower tolerant converter.
+                wave, flux = np.loadtxt(
+                    spec_filename,
+                    skiprows=skiprows,
+                    usecols=usecols,
+                    comments="#",
+                    unpack=True,
+                    converters=_ffloat,
+                    dtype=float,
+                )
             seds.append(flux)
 
         match x_unit.lower():
@@ -541,8 +610,6 @@ class DustyReader:
                 wave *= 1e4
             case "um-1" | "micron-1":
                 wave = 1 / wave
-            case _:
-                raise ValueError("x_unit must be one of [um, Ang, um-1].")
 
         return np.array(wave), np.array(seds)
 
@@ -550,5 +617,5 @@ class DustyReader:
         fbol = []
         for i in range(self.n_models):
             with open(str(self.model_name) + f".s{i+1:03}", "r") as f:
-                fbol.append(float(f.readlines()[2].split("=")[1]))
+                fbol.append(_ffloat(f.readlines()[2].split("=")[1]))
         return fbol

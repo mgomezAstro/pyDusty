@@ -7,6 +7,7 @@ Created on Wed Mar 18 15:22:29 2026
 """
 
 import importlib.resources as pkg
+import logging
 import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -25,6 +26,8 @@ from .dust_utils import thermal_emission as _thermal_emission
 from .pydusty import DustyError
 from .pydusty import DustyInp as _dustyinp
 from .pydusty import DustyReader as _dustyreader
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -53,11 +56,22 @@ class Model(ABC):
 
 @dataclass
 class Parameter:
+    """A model parameter.
+
+    ``init_scale`` ("linear" or "log") only controls how
+    :meth:`EmceeRunner.sample_prior` draws the walkers' *starting* positions
+    when no ``p0`` is given: uniformly in the value, or uniformly in log10 of
+    the value (requires ``min > 0``). It does not change the prior used in
+    the fit, which stays uniform in the value between ``min`` and ``max``
+    (see :meth:`EmceeRunner.log_prior`).
+    """
+
     name: str
     value: float
     vary: bool
     min: float
     max: float
+    init_scale: str = "linear"
 
 
 class Parameters:
@@ -120,7 +134,9 @@ class DustyModel(Model):
             self.params = Parameters()
             self.params.add(Parameter("teff", self.teff, True, 2000.0, 30000.0))
             self.params.add(Parameter("td", self.td, True, 50, 1900.0))
-            self.params.add(Parameter("tau", self.tau, True, 1e-4, 100.0))
+            self.params.add(
+                Parameter("tau", self.tau, True, 1e-4, 100.0, init_scale="log")
+            )
             self.params.add(Parameter("dust_abund", self.dust_abund, False, 0, 1.0))
 
     @property
@@ -395,12 +411,63 @@ class EmceeRunner:
         self._names_varied = [param.name for param in self.params if param.vary]
         self._tmp_models_path = None
 
-    def sample_prior(self, chains):
-        np.random.seed(os.getpid())
+    def sample_prior(self, chains: int, seed: int | None = None) -> np.ndarray:
+        """Draw ``chains`` starting positions for the free parameters.
+
+        Uses a local ``np.random.Generator`` seeded with ``seed`` (``None``:
+        fresh OS entropy), so the global NumPy RNG is not touched.
+
+        For each free parameter:
+
+        * finite bounds, ``init_scale="linear"``: uniform in [min, max];
+        * finite bounds, ``init_scale="log"``: uniform in log10 between
+          min and max (requires ``min > 0``);
+        * a non-finite bound (e.g. ``-inf..inf``): a small Gaussian ball
+          around ``param.value`` (sigma = 1e-2 * max(1, |value|)), clipped
+          to lie strictly inside the bounds.
+
+        This only sets the walkers' starting positions; the prior used in the
+        fit (:meth:`log_prior`) is unchanged.
+        """
+        rng = np.random.default_rng(seed)
         stack = []
         for param in self.params:
-            if param.vary:
-                stack.append(np.random.uniform(param.min, param.max, chains))
+            if not param.vary:
+                continue
+            lo, hi = float(param.min), float(param.max)
+            if np.isfinite(lo) and np.isfinite(hi):
+                if param.init_scale == "log":
+                    if lo <= 0:
+                        raise ValueError(
+                            f"Parameter '{param.name}': init_scale='log' "
+                            f"requires min > 0 (got min={lo})."
+                        )
+                    col = 10 ** rng.uniform(np.log10(lo), np.log10(hi), chains)
+                elif param.init_scale == "linear":
+                    col = rng.uniform(lo, hi, chains)
+                else:
+                    raise ValueError(
+                        f"Parameter '{param.name}': init_scale must be "
+                        f"'linear' or 'log' (got {param.init_scale!r})."
+                    )
+            else:
+                value = param.value
+                if value is None or not np.isfinite(value):
+                    raise ValueError(
+                        f"Parameter '{param.name}' has non-finite bounds "
+                        f"[{lo}, {hi}] and no finite value to start from; "
+                        "pass initial positions with p0."
+                    )
+                sigma = 1e-2 * max(1.0, abs(value))
+                col = value + sigma * rng.standard_normal(chains)
+                # keep the starts strictly inside the (half-open) bounds
+                col = np.clip(
+                    col, np.nextafter(lo, np.inf), np.nextafter(hi, -np.inf)
+                )
+            # uniform() may return the lower bound; log_prior is strict
+            col = np.where(col <= lo, np.nextafter(lo, np.inf), col)
+            col = np.where(col >= hi, np.nextafter(hi, -np.inf), col)
+            stack.append(col)
         return np.column_stack(stack)
 
     def log_prior(self):
@@ -479,7 +546,13 @@ class EmceeRunner:
         steps: int = 1000,
         chains: int = 32,
         p0: list | None = None,
+        seed: int | None = None,
     ):
+        """Run the sampler.
+
+        ``seed`` is passed to :meth:`sample_prior` when ``p0`` is not given
+        (it does not seed emcee's own moves).
+        """
 
         init_positions = None
         backend = emcee.backends.HDFBackend(f"emcee_{suffix}.h5")
@@ -487,9 +560,11 @@ class EmceeRunner:
         if not continue_from_last:
             init_positions = p0
             if p0 is None:
-                print("Not initial positions set. Using uniform initial values.")
-                init_positions = self.sample_prior(chains)
-                print(init_positions)
+                logger.info(
+                    "Not initial positions set. Using uniform initial values."
+                )
+                init_positions = self.sample_prior(chains, seed=seed)
+                logger.info("Initial positions:\n%s", init_positions)
             backend.reset(chains, ndim)
 
         with TemporaryDirectory(prefix="emcee_runs_") as tmpdir:
