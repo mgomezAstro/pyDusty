@@ -1,3 +1,5 @@
 [build-system]
 requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
+license = "BSD-3-Clause"
+license-files = ["LICENSE", "LICENSE-DUSTY"]
