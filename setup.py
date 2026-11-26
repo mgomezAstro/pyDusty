@@ -42,6 +42,8 @@ setup(
     description="Python wrapper for the radiative transfer code Dusty (v4) originally created by Maia Nenkova (2000ASPC..196...77N).",
     author="M. A. Gomez-Munoz",
     author_email="mgomez_astro@outlook.com",
+    license="BSD-3-Clause",
+    license_files=["LICENSE", "LICENSE-DUSTY"],
     keywords="astronomy radiative transfer dusty",
     cmdclass={"build_py": InstallDUSTYv4},
 )

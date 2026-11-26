@@ -6,6 +6,7 @@ import time
 from pathlib import Path
 from dataclasses import dataclass
 import logging
+import warnings
 from typing import Union, List, Optional
 
 
@@ -17,7 +18,7 @@ class DustyError(RuntimeError):
 class DustyInp:
     model_name: str
     exe_path: Union[str, Path, None] = None
-    project_dir: str | Path = Path.cwd()
+    project_dir: str | Path | None = None
 
     def __post_init__(self) -> None:
 
@@ -52,12 +53,14 @@ class DustyInp:
             "m": 2,
         }
 
-        if isinstance(self.project_dir, str):
-            self.project_dir = Path(self.project_dir)
+        # Resolved here (not as a class-level default) so that the current
+        # working directory is taken when the object is created, not at import.
+        if self.project_dir is None:
+            self.project_dir = Path.cwd()
+        self.project_dir = Path(self.project_dir)
 
         self.output_path = self.project_dir
-        if not self.output_path.exists():
-            self.output_path.mkdir()
+        self.output_path.mkdir(parents=True, exist_ok=True)
         self.full_model_name = self.output_path / self.model_name
 
     def set_sphere(self, set_matrix: bool = False) -> None:
@@ -72,8 +75,30 @@ class DustyInp:
         thickness: Optional[Union[float, List[float]]] = 1e4,
         p: Optional[Union[float, List[float]]] = 0,
         sigma: Optional[float] = None,
-        profile_filenae: Optional[str] = None,
+        profile_filename: Optional[Union[str, Path]] = None,
+        profile_filenae: Optional[Union[str, Path]] = None,
     ) -> None:
+        """Set the density distribution of the shell.
+
+        density_type is one of POWD, EXPD, RDW, RDWA or USER_SUPPLIED
+        ("USR_SUPPLD" is accepted as an alias of USER_SUPPLIED). For
+        USER_SUPPLIED, ``profile_filename`` is the file with the density
+        profile (three header lines followed by two columns: radius, density);
+        a relative path is resolved from ``project_dir``, where DUSTY runs.
+        ``profile_filenae`` is a deprecated misspelled alias.
+        """
+        if profile_filenae is not None:
+            warnings.warn(
+                "'profile_filenae' is deprecated; use 'profile_filename' instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            if profile_filename is not None:
+                raise ValueError(
+                    "Give only one of 'profile_filename' and 'profile_filenae'."
+                )
+            profile_filename = profile_filenae
+
         match density_type:
             case "POWD":
                 self.geometry_params = {"Density Type": "POWD", "N": n_pwd}
@@ -86,18 +111,23 @@ class DustyInp:
                 self.geometry_params = {
                     "Density Type": "EXPD",
                     "Y": thickness,
-                    "simga": sigma,
+                    "sigma": sigma,
                 }
             case "RDW" | "RDWA":
-                self.geometry_params = {"Denisty Type": density_type, "Y": thickness}
-            case "USR_SUPPLD":
+                self.geometry_params = {"Density Type": density_type, "Y": thickness}
+            case "USER_SUPPLIED" | "USR_SUPPLD":
+                if profile_filename is None:
+                    raise ValueError(
+                        "USER_SUPPLIED density requires 'profile_filename'."
+                    )
                 self.geometry_params = {
-                    "Density Type": density_type,
-                    "profile filename": profile_filenae,
+                    "Density Type": "USER_SUPPLIED",
+                    "profile filename": str(profile_filename),
                 }
             case _:
                 raise ValueError(
-                    "Density Type must be one of [POWD, EXPD, RDW, RWDA, or USR_SUPPLD]."
+                    "Density Type must be one of [POWD, EXPD, RDW, RDWA, or "
+                    "USER_SUPPLIED (alias USR_SUPPLD)]."
                 )
 
     def set_central_radiation(self, central: bool = True) -> None:
@@ -220,78 +250,87 @@ class DustyInp:
         return text
 
     def print_inp_file(self, to_console: bool = False) -> None:
+        """Write ``<model_name>.inp`` from the current settings.
+
+        Idempotent: the text is rebuilt from scratch on every call, so calling
+        it several times writes the same file. The result is also kept in
+        ``self.output_text``.
+        """
+        t: List[str] = [">\n"]
         for comment in self.comments:
-            self.output_text += f"* {comment}\n"
-        self.output_text += "\n\n"
+            t.append(f"* {comment}\n")
+        t.append("\n\n")
+
+        def spectrum_and_scale() -> None:
+            for key in self.spectral_shape.keys():
+                t.append(f"{key} = {self.spectral_shape[key]}\n")
+            t.append("\n")
+            for key in self.scale.keys():
+                t.append(f"{key} = {self.scale[key]}\n")
+            t.append("\n")
 
         # Geomtry, spectral shape, and scale
-        self.output_text += f"GEOMETRY = {self.geometry['GEOMETRY']}\n\n"
+        t.append(f"GEOMETRY = {self.geometry['GEOMETRY']}\n\n")
+        t.append(f"central = {self.external_radiation['central']}\n\n")
         if self.external_radiation["central"] == "ON":
-            self.output_text += f"central = {self.external_radiation['central']}\n\n"
-            for key in self.spectral_shape.keys():
-                self.output_text += f"{key} = {self.spectral_shape[key]}\n"
-            self.output_text += "\n"
-            for key in self.scale.keys():
-                self.output_text += f"{key} = {self.scale[key]}\n"
-            self.output_text += "\n"
-            self.output_text += f"external = {self.external_radiation['external']}\n\n"
+            spectrum_and_scale()
+            t.append(f"external = {self.external_radiation['external']}\n\n")
         else:
-            self.output_text += f"central = {self.external_radiation['central']}\n\n"
-            self.output_text += f"external = {self.external_radiation['external']}\n\n"
-            for key in self.spectral_shape.keys():
-                self.output_text += f"{key} = {self.spectral_shape[key]}\n"
-            self.output_text += "\n"
-            for key in self.scale.keys():
-                self.output_text += f"{key} = {self.scale[key]}\n"
-            self.output_text += "\n"
+            t.append(f"external = {self.external_radiation['external']}\n\n")
+            spectrum_and_scale()
 
         # Dust properties
         if self.abund_user["nk_n"] > 0:
-            self.output_text += (
-                "optical properties index = COMMON_AND_ADDL_GRAIN_COMPOSITE\n"
-            )
+            t.append("optical properties index = COMMON_AND_ADDL_GRAIN_COMPOSITE\n")
         else:
-            self.output_text += "optical properties index = COMMON_GRAIN_COMPOSITE\n"
+            t.append("optical properties index = COMMON_GRAIN_COMPOSITE\n")
         for key in list(self.grains_abund.keys())[:6]:
-            self.output_text += f"    {key:10}"
-        self.output_text += "\n"
-        self.output_text += "x = "
+            t.append(f"    {key:10}")
+        t.append("\n")
+        t.append("x = ")
         for key in list(self.grains_abund.keys())[:6]:
-            self.output_text += f"  {str(self.grains_abund[key]):^10}"
-        self.output_text += "\n\n"
+            t.append(f"  {str(self.grains_abund[key]):^10}")
+        t.append("\n\n")
 
         ### other nk if specified
         if self.abund_user["nk_n"] > 0:
-            self.output_text += f"Number of additional components = {self.abund_user['nk_n']}, properties listed in files\n"
+            t.append(
+                f"Number of additional components = {self.abund_user['nk_n']}, "
+                "properties listed in files\n"
+            )
             for file in self.abund_user["nk_files"]:
-                self.output_text += f"    {file}\n"
-            self.output_text += (
-                f"Abundance for these components = "
+                t.append(f"    {file}\n")
+            t.append(
+                "Abundance for these components = "
                 + ", ".join(self.abund_user["nk_abunds"])
                 + "\n\n"
             )
 
         ### grain distribution
         for key in self.grains_params.keys():
-            self.output_text += f"{key} = {self.grains_params[key]}\n"
-        self.output_text += "\n"
+            t.append(f"{key} = {self.grains_params[key]}\n")
+        t.append("\n")
 
-        self.output_text += (
-            f"Sublimation Temperature = {self.grains_abund['subl_temp']}\n\n"
-        )
+        t.append(f"Sublimation Temperature = {self.grains_abund['subl_temp']}\n\n")
 
         # Density of the shell
         for key in self.geometry_params.keys():
-            self.output_text += f"{key} = {self.geometry_params[key]}\n"
-        self.output_text += "\n"
+            if key == "profile filename":
+                # DUSTY reads the file name as the next non-empty line, verbatim
+                t.append(f"{self.geometry_params[key]}\n")
+                continue
+            t.append(f"{key} = {self.geometry_params[key]}\n")
+        t.append("\n")
 
-        self.output_text += self._tau_to_text()
-        self.output_text += self._set_options_to_text()
+        t.append(self._tau_to_text())
+        t.append(self._set_options_to_text())
+
+        self.output_text = "".join(t)
 
         if to_console:
             print(self.output_text)
 
-        with open(str(self.full_model_name) + ".inp", "+w") as o:
+        with open(str(self.full_model_name) + ".inp", "w") as o:
             o.write(self.output_text)
 
     def _clean_outputs(self) -> None:
