@@ -11,12 +11,17 @@ python wrapper is here [dusty](https://github.com/mgomezAstro/dusty).
 - gfortran
 - openmp support (for now is not optional; it will be compiled with `-fopenmp` flag)
 
-A version of DUSTY (V4) will be installed with this package inside the package directory (pydusty/bin/dusty) and will be 
-used as default.
+A version of DUSTY (V4) is compiled with `gfortran` when the package is installed and placed inside the package
+directory (pydusty/bin/dusty), where it is used as default.
 
 ### Installation
 
 `pip install git+https://github.com/mgomezAstro/pyDusty.git`
+
+or, from a clone of the repository, `pip install .` (or `pip install -e .` for an editable install).
+The installation stops with an error if `gfortran` is not found; set the `FC` environment variable to use another
+gfortran-compatible compiler. If the DUSTY executable is missing (e.g. it was deleted), running a model raises a
+`DustyError`: reinstall pydusty to compile it again.
 
 
 ### Example
@@ -58,6 +63,34 @@ central source of temperature `teff`, and a power-law density profile. The main 
 
 `compute` returns `(wave, flux)` and writes the DUSTY output files to `project_dir`
 (default `"./output"`).
+
+#### Grids of optical depths
+
+`DustyModel.compute_grid` runs many optical depths in a single DUSTY call, using the `teff`, `td`
+and `dust_abund` of the model (its `tau` is ignored):
+
+```python
+import numpy as np
+
+from pydusty.models import DustyModel
+
+
+mod = DustyModel(teff=2500, td=250, tau=1.0, dust_abund=0.7, model_name="sphere_grid")
+taus = np.linspace(0.1, 5.0, 10)
+wave, fluxes, out = mod.compute_grid(taus, project_dir="./output")
+# fluxes[i] is the spectrum for taus[i]; out is the RESULTS table of the .out file.
+```
+
+It returns `(wave, fluxes, output_data)`: `fluxes` has shape `(len(taus), len(wave))` and
+`output_data` is the same dictionary as `DustyReader.get_output_data()`, both in the order of
+`taus` as given (at most 999 values). Unlike `compute`, points with non-positive flux are not
+removed.
+
+DUSTY solves the models in increasing `tau`, starting each one from the previous solution. This is
+faster for closely spaced optical depths (about 2x for 10 values between 0.1 and 5), but it can be
+slower for widely spaced, large ones. The spectra agree with separate `compute` calls to about
+1-2% (where the flux is above 1e-3 of the peak; more in the faint far wings), not bit for bit.
+`EmceeRunner` does not use it.
 
 #### Fitting a DUSTY model with `EmceeRunner`
 
@@ -105,7 +138,27 @@ sampler = mcmc.run(
 The `Parameters` tuple is `(name, value, vary, min, max)`. Extra fixed `DustyModel`
 arguments (for example `dust_type_1`, `dust_type_2`, or `thickness`) can be passed through
 `kargs_model`. The chains are saved to `emcee_<suffix>.h5`; set `continue_from_last=True`
-to resume an existing run.
+to resume an existing run. If `p0` is not given, the initial positions are drawn uniformly
+within the parameter limits; pass `seed=` to `run` to make them reproducible (it does not
+seed emcee's own moves).
+
+#### Parallel runs and reproducibility
+
+- `n_proc`: number of worker processes used to evaluate the walkers (`n_proc=-1` or
+  `n_proc="auto"` uses one per CPU). This pays off for `DustyModel`, where each evaluation is a
+  DUSTY run. For the fast analytic models (`BBModel`, `ThermalEmissionModel`) the overhead of
+  the processes is larger than the model itself, so `n_proc=1` (default) is usually faster.
+- `omp_threads`: number of OpenMP threads of each DUSTY run (sets `OMP_NUM_THREADS` for the
+  DUSTY process). The default `None` inherits the environment. It is not limited
+  automatically: emcee evaluates the walkers in batches, so the slowest (large `tau`) model sets
+  the pace, and that model runs much faster with several threads. `omp_threads` can also be
+  given to `DustyModel.compute`, `DustyModel.compute_grid` and `DustyInp`.
+- With more than one thread, the DUSTY binary occasionally returns slightly different spectra
+  for the same input. Use `omp_threads=1` if you need bit-for-bit reproducible results.
+
+```python
+sampler = mcmc.run(suffix="_dust", n_proc="auto", steps=1000, chains=6, p0=p0, omp_threads=1)
+```
 
 #### Other models
 
@@ -137,12 +190,16 @@ with `emcee`. See its docstring for the required arguments and the `run` options
 For full control over the DUSTY input file, use `DustyInp` directly:
 
 ```python
+import importlib.resources as pkg
+
 import pydusty
 
 
 teff = 2500
 td = 250
 model_name = f"sphere_{teff}_{td}"
+
+nk_dir = pkg.files("pydusty") / "fortran/dustyV4/data/Lib_nk"  # Optical constants shipped with DUSTY.
 
 mod = pydusty.DustyInp(model_name=model_name, project_dir="./output")
 mod.options["r"] = 0 # No radial profile output (see dusty manual).
@@ -155,7 +212,7 @@ mod.set_density_profile(density_type="POWD", n_pwd=1, thickness=1000, p=2)
 mod.set_grain_size_dist(grain_distribution="MRN", amin=0.005, amax=0.25, q=3.5)
 mod.set_grains_abund(
     predef_abund={"Sil-DL": 0.7},
-    nk_files=["/path/to/your/nk_file/data/Lib_nk/amC-zb1.nk"],
+    nk_files=[str(nk_dir / "amC-zb1.nk")],  # Or the path to your own .nk file.
     nk_abunds=[0.3],
 )
 mod.set_radiation_strenght(scale_type="T1", scale_value=td)
@@ -166,7 +223,7 @@ mod.set_comments(
     [
         "This is a model for the test object.",
         f"Main parameters: Teff--{teff}, and Td--{td}.",
-        "Grains of Silicates (Sil-Oc) was set to 0.7 and aC to 0.3.",
+        "Grains of Silicates (Sil-DL) was set to 0.7 and aC to 0.3.",
     ]
 )
 mod.print_inp_file()
@@ -190,6 +247,26 @@ ot = mod.get_output_data() # A dictionary with the output table in the .out file
 ```
 
 See the docstrings for other methods included in pydusty.
+
+#### Errors
+
+If DUSTY fails (it exits with an error or does not write its output files) or its executable is
+missing, pydusty raises `pydusty.DustyError` (a subclass of `RuntimeError`). The message includes
+the last lines of the DUSTY output:
+
+```python
+import pydusty
+from pydusty.models import DustyModel
+
+
+try:
+    wave, flux = DustyModel(teff=2500, td=250, tau=10.0, dust_abund=0.7).compute()
+except pydusty.DustyError as err:
+    print(f"DUSTY failed: {err}")
+```
+
+Inside `EmceeRunner`, a failed model gives a log-probability of `-inf` for that step instead of
+stopping the run.
 
 ### License
 pyDusty is released under the BSD 3-Clause License (see `LICENSE`).

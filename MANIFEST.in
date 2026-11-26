@@ -1,2 +1,10 @@
-recursive-include pydusty/fortran/dustyV4 *
-recursive-include pydusty/data *
+include CITATION.cff
+# DUSTY Fortran sources and data are needed to build/run pydusty.
+recursive-include pydusty/fortran/dustyV4 *.f90 *.inc *.mas Makefile
+recursive-include pydusty/fortran/dustyV4/data *
+recursive-include pydusty/data *.txt
+# Build products and docs are not shipped.
+exclude pydusty/fortran/dustyV4/dusty
+exclude pydusty/bin/dusty
+prune pydusty/fortran/dustyV4/docs
+global-exclude *.mod *.o *.pyc __pycache__

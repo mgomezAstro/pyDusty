@@ -509,6 +509,16 @@ class DustyInp:
             env = os.environ.copy()
             env["OMP_NUM_THREADS"] = str(max(1, int(omp_threads)))
 
+        exe = Path(self.exe_path)
+        if not (exe.is_file() and os.access(exe, os.X_OK)):
+            raise DustyError(
+                f"DUSTY executable not found or not executable: {exe}. "
+                "It is compiled from the bundled Fortran sources when pydusty "
+                "is installed; make sure gfortran is available and reinstall "
+                "pydusty (e.g. 'pip install --force-reinstall --no-deps .' or "
+                "'pip install -e .' from the source tree), or pass exe_path."
+            )
+
         data_path = pkg.files("pydusty").joinpath("fortran/dustyV4")
         cmd = [
             str(Path(self.exe_path).resolve()),

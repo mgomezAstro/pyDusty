@@ -16,3 +16,7 @@ pydusty:
 __pycache__/
 
 common.mod
+
+# DUSTY executable is compiled at install time
+pydusty/bin/dusty
+*.mod
