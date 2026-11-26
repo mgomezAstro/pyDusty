@@ -1,4 +1,5 @@
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -13,6 +14,19 @@ except ImportError:  # setuptools < 70.1
 
 PROJECT_ROOT = os.path.abspath(os.path.dirname(__file__))
 DUSTY_SRC_DIR = os.path.join(PROJECT_ROOT, "pydusty", "fortran", "dustyV4")
+
+
+def read_version():
+    """Read ``__version__`` from pydusty/__version__.py without importing
+    the package (so building does not need numpy etc. installed)."""
+    path = os.path.join(PROJECT_ROOT, "pydusty", "__version__.py")
+    with open(path, encoding="utf-8") as fh:
+        match = re.search(
+            r"""^__version__\s*=\s*['"]([^'"]+)['"]""", fh.read(), re.M
+        )
+    if match is None:
+        raise RuntimeError(f"Unable to find __version__ in {path}")
+    return match.group(1)
 
 
 def compile_dusty(exe):
@@ -77,7 +91,7 @@ class BdistWheelPlatform(bdist_wheel):
 
 setup(
     name="pydusty",
-    version="2.18.14",
+    version=read_version(),
     packages=find_packages(),
     # Runtime data only (bin/dusty is compiled by BuildPyWithDusty). The
     # Fortran sources are shipped in the sdist via MANIFEST.in, not here.
