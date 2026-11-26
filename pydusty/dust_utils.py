@@ -10,9 +10,8 @@ import miepython as mie
 import numpy as np
 from scipy.interpolate import interp1d
 from scipy.integrate import trapezoid as trapz
-import os
-import sys
 import importlib.resources as pkg
+from functools import lru_cache
 
 
 # Some constants (cgs units)
@@ -25,6 +24,28 @@ pc_to_cm = 3.08567758e18
 kpc_to_cm = 1e03 * pc_to_cm
 mpc_to_cm = 1e06 * pc_to_cm
 solmass_to_grams = 1.98840987e33
+
+_distance_units = {"mpc": mpc_to_cm, "kpc": kpc_to_cm, "pc": pc_to_cm}
+
+
+def distance_to_cm(distance: float, distance_unit: str = "Mpc") -> float:
+    """Convert a distance in pc, kpc or Mpc to cm."""
+    unit = distance_unit.lower()
+    if unit not in _distance_units:
+        raise ValueError("Distance must be one of [Mpc, kpc, pc].")
+    return distance * _distance_units[unit]
+
+
+@lru_cache(maxsize=None)
+def _read_nk(filename: str):
+    """Read (and cache) a wavelength / n / k table."""
+    return np.loadtxt(filename, skiprows=1, unpack=True)
+
+
+def _q_abs(m, x):
+    """Absorption efficiency Q_abs = Q_ext - Q_sca."""
+    qext, qsca, _, _ = mie.efficiencies_mx(m, x)
+    return qext - qsca
 
 
 def planck_nu(nu: np.ndarray, temperature: float):
@@ -106,9 +127,9 @@ def get_opacity(
 
     if m is not None and rho is not None:
         x = 2 * np.pi * a / wave
-        Qext, _, _, _ = mie.efficiencies_mx(m, x)
+        Qabs = _q_abs(m, x)
 
-        return 3.0 * Qext / (4.0 * rho * a)
+        return 3.0 * Qabs / (4.0 * rho * a)
 
     elif (m is None and rho is not None) or (m is not None and rho is None):
         raise ValueError(
@@ -128,46 +149,47 @@ def get_opacity(
         )
 
     if grain_type == "graphite":
-        wl_par, real_par, im_par = np.loadtxt(
-            data_path + available_grains[grain_type][0] + "par.txt",
-            skiprows=1,
-            unpack=True,
+        wl_par, real_par, im_par = _read_nk(
+            str(data_path / (available_grains[grain_type][0] + "par.txt"))
         )
-        wl_perp, real_perp, im_perp = np.loadtxt(
-            data_path + available_grains[grain_type][0] + "perp.txt",
-            skiprows=1,
-            unpack=True,
+        wl_perp, real_perp, im_perp = _read_nk(
+            str(data_path / (available_grains[grain_type][0] + "perp.txt"))
         )
 
-        wl_par *= micron_to_cm
-        wl_perp *= micron_to_cm
+        wl_par = wl_par * micron_to_cm
+        wl_perp = wl_perp * micron_to_cm
 
         rho = available_grains[grain_type][1]
         m_par = real_par - 1.0j * im_par
         m_perp = real_perp - 1.0j * im_perp
         x_par = 2 * np.pi * a / wl_par
         x_perp = 2 * np.pi * a / wl_perp
-        qext_par, _, _, _ = mie.efficiencies_mx(m_par, x_par)
-        qext_perp, _, _, _ = mie.efficiencies_mx(m_perp, x_perp)
+        qabs_par = _q_abs(m_par, x_par)
+        qabs_perp = _q_abs(m_perp, x_perp)
 
-        qext = (1.0 / 3.0) * qext_par + (2.0 / 3.0) * qext_perp
+        qabs = (1.0 / 3.0) * qabs_par + (2.0 / 3.0) * qabs_perp
 
-        Qext = np.interp(wave, wl_par, qext, left=0.0, right=0.0)
+        Qabs = np.interp(wave, wl_par, qabs, left=0.0, right=0.0)
     else:
-        wl, real, im = np.loadtxt(
-            data_path / available_grains[grain_type][0],
-            unpack=True,
-            skiprows=1,
-        )
-        wl *= micron_to_cm
+        wl, real, im = _read_nk(str(data_path / available_grains[grain_type][0]))
+        wl = wl * micron_to_cm
         rho = available_grains[grain_type][1]
         m = real - 1.0j * im
         x = 2 * np.pi * a / wl
-        qext, _, _, _ = mie.efficiencies_mx(m, x)
+        qabs = _q_abs(m, x)
 
-        Qext = np.interp(wave, wl, qext, left=0.0, right=0.0)
+        Qabs = np.interp(wave, wl, qabs, left=0.0, right=0.0)
 
-    return 3.0 * Qext / (4.0 * rho * a)
+    return 3.0 * Qabs / (4.0 * rho * a)
+
+
+@lru_cache(maxsize=32)
+def _cached_opacity(wave_bytes: bytes, a: float, grain_type: str) -> np.ndarray:
+    """Opacity for a predefined grain type, cached in memory per process."""
+    wave = np.frombuffer(wave_bytes, dtype=np.float64)
+    opac = get_opacity(wave=wave, a=a, grain_type=grain_type)
+    opac.setflags(write=False)
+    return opac
 
 
 def thermal_emission(
@@ -211,43 +233,25 @@ def thermal_emission(
         Flux density in erg s⁻¹ cm⁻² Hz⁻¹.
 
     """
-    distance_unit = distance_unit.lower()
-    if distance_unit not in ["mpc", "kpc", "pc"]:
-        raise ValueError("Distance must be one of [Mpc, kpc, pc].")
-
-    if distance_unit == "mpc":
-        distance *= mpc_to_cm
-    if distance_unit == "kpc":
-        distance *= kpc_to_cm
-    if distance_unit == "pc":
-        distance *= pc_to_cm
+    distance = distance_to_cm(distance, distance_unit)
 
     bb = planck_bb(wave * micron_to_cm, temperature, output_units="nu")
-    opac = np.ones_like(bb)
 
     if m is not None and rho is not None:
-        if os.path.exists("./custom_opac.txt"):
-            opac = np.loadtxt(f"./custom_opac.txt")
-        else:
-            opac = get_opacity(
-                wave=wave * micron_to_cm,
-                a=a * micron_to_cm,
-                m=m,
-                rho=rho,
-            )
-            np.savetxt("./custom_opac.txt", opac)
+        opac = get_opacity(
+            wave=wave * micron_to_cm,
+            a=a * micron_to_cm,
+            m=m,
+            rho=rho,
+        )
     else:
-        if os.path.exists(f"./{grain_type}_opac.txt"):
-            opac = np.loadtxt(f"./{grain_type}_opac.txt")
-        else:
-            opac = get_opacity(
-                wave=wave * micron_to_cm,
-                a=a * micron_to_cm,
-                grain_type=grain_type,
-            )
-            np.savetxt(f"./{grain_type}_opac.txt", opac)
+        wave_cm = np.ascontiguousarray(wave * micron_to_cm, dtype=np.float64)
+        opac = _cached_opacity(
+            wave_cm.tobytes(), float(a * micron_to_cm), grain_type.lower()
+        )
 
     return (dust_mass * solmass_to_grams) * bb * opac / distance**2
+
 
 def ConvolveFilter(wave, flux, wfilt, ffilt, returnType="fnu"):
     """

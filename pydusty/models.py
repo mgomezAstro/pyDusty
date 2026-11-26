@@ -19,8 +19,10 @@ import emcee
 import numpy as np
 from scipy.stats import norm
 
+from .dust_utils import distance_to_cm as _distance_to_cm
 from .dust_utils import planck_bb as _planck_bb
 from .dust_utils import thermal_emission as _thermal_emission
+from .pydusty import DustyError
 from .pydusty import DustyInp as _dustyinp
 from .pydusty import DustyReader as _dustyreader
 
@@ -328,8 +330,10 @@ class ThermalEmissionModel(Model):
         return 1.0
 
     def _fn_model(self, teff, td, dust_mass, log_radius, *args, **kwargs):
+        d_cm = _distance_to_cm(self.distance, self.distance_unit)
+
         bb_flux = np.pi * _planck_bb(self.wave / 1e4, teff, output_units="nu")
-        bb_flux *= (10**log_radius / (self.distance * 3.08567758e24)) ** 2
+        bb_flux *= (10**log_radius / d_cm) ** 2
 
         ir_flux = _thermal_emission(
             wave=self.wave,
@@ -345,7 +349,7 @@ class ThermalEmissionModel(Model):
 
         if self.unit == "nuLnu":
             total_flux *= (
-                4 * np.pi * (self.distance * 3.08567758e24) ** 2 / 3.828e33
+                4 * np.pi * d_cm**2 / 3.828e33
             )  # in solar units
 
         return total_flux
@@ -423,7 +427,10 @@ class EmceeRunner:
 
         worker_id = os.getpid()
         scratch_dir = self._tmp_models_path / f"worker_{worker_id}"
-        wave, flux = model.compute(project_dir=scratch_dir)
+        try:
+            wave, flux = model.compute(project_dir=scratch_dir)
+        except DustyError:
+            return -np.inf, -np.inf, -np.inf
 
         flux = np.interp(self.x_obs, wave, flux)
 
@@ -439,13 +446,14 @@ class EmceeRunner:
             (self.y_obs[no_limits] - flux[no_limits] * scale) ** 2 / sigma2
         )
 
+        if not np.isfinite(scale) or scale <= 0:
+            return -np.inf, -np.inf, -np.inf
+
         if self.mask_uplims.sum() > 0:
-            for fl_obs, fl_mod, fl_obs_err in zip(
-                self.y_obs[self.mask_uplims],
-                flux[self.mask_uplims],
-                self.y_err[self.mask_uplims],
-            ):
-                chi2 += norm.logcdf(fl_obs, loc=fl_mod, scale=fl_obs_err)
+            m = self.mask_uplims
+            chi2 += norm.logcdf(
+                self.y_obs[m], loc=flux[m] * scale, scale=self.y_err[m]
+            ).sum()
 
         rin_denorm = 0.0
         if self.denorm_rin or self.vel_constrain is not None:

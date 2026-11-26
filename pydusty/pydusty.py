@@ -1,3 +1,4 @@
+import glob
 import numpy as np
 import subprocess
 import importlib.resources as pkg
@@ -6,6 +7,10 @@ from pathlib import Path
 from dataclasses import dataclass
 import logging
 from typing import Union, List, Optional
+
+
+class DustyError(RuntimeError):
+    """Raised when a DUSTY run fails or does not produce its outputs."""
 
 
 @dataclass
@@ -289,26 +294,58 @@ class DustyInp:
         with open(str(self.full_model_name) + ".inp", "+w") as o:
             o.write(self.output_text)
 
+    def _clean_outputs(self) -> None:
+        """Remove outputs of a previous run of this model (keeps the .inp)."""
+        for f in self.output_path.glob(f"{glob.escape(self.model_name)}.*"):
+            if f.suffix != ".inp" and f.is_file():
+                f.unlink()
+
     def run(self, verbose=False) -> None:
-        script = f"{self.exe_path} {self.full_model_name}.inp 2 "
+        self._clean_outputs()
+
         data_path = pkg.files("pydusty").joinpath("fortran/dustyV4")
-        script += str(data_path)
+        cmd = [
+            str(Path(self.exe_path).resolve()),
+            f"{self.model_name}.inp",
+            "2",
+            str(data_path),
+        ]
 
         start_timer = 0.0
-        sp = subprocess.PIPE
-
         if verbose:
             print("\nRunning DUSTY (v4)")
             print(f"Model name: {self.model_name}")
-            sp = None
             start_timer = time.time()
 
-        proc = subprocess.Popen(script, shell=True, stdout=sp, stdin=None)
-        proc.communicate()
+        try:
+            proc = subprocess.run(
+                cmd,
+                cwd=self.output_path,
+                capture_output=not verbose,
+                text=True,
+            )
+        except OSError as e:
+            raise DustyError(f"Could not execute DUSTY ({cmd[0]}): {e}") from e
 
         if verbose:
             end_timer = time.time() - start_timer
             print(f"Ended after: {end_timer:.2f}s\n")
+
+        expected = [Path(str(self.full_model_name) + ".out")]
+        if self.options.get("s") == 2:
+            expected.append(Path(str(self.full_model_name) + ".s001"))
+        missing = [f.name for f in expected if not f.is_file()]
+
+        if proc.returncode != 0 or missing:
+            tail = ""
+            if not verbose:
+                out = ((proc.stdout or "") + (proc.stderr or "")).strip()
+                tail = "\n".join(out.splitlines()[-20:])
+            raise DustyError(
+                f"DUSTY failed for model '{self.full_model_name}' "
+                f"(returncode={proc.returncode}, missing outputs={missing}).\n"
+                + tail
+            )
 
 
 @dataclass
