@@ -1,4 +1,5 @@
 import glob
+import os
 import re
 import numpy as np
 import subprocess
@@ -23,6 +24,9 @@ _SPECTRA_COLUMNS = {
     "TauTot": 6,
     "albedo": 7,
 }
+
+# DUSTY reads at most Nrec - 1 = 999 optical depths (Nrec in dusty.f90).
+MAX_TAU_MODELS = 999
 
 # Keys always present in DustyReader.get_output_data(), in order.
 _OUT_BASE_KEYS = (
@@ -92,9 +96,18 @@ class DustyError(RuntimeError):
 
 @dataclass
 class DustyInp:
+    """Writer and runner of a DUSTY input file.
+
+    ``omp_threads``: number of OpenMP threads for the DUSTY process
+    (``OMP_NUM_THREADS`` in its environment). ``None`` (default) inherits the
+    environment of the Python process unchanged. Can also be given to
+    :meth:`run`, which takes precedence.
+    """
+
     model_name: str
     exe_path: Union[str, Path, None] = None
     project_dir: str | Path | None = None
+    omp_threads: int | None = None
 
     def __post_init__(self) -> None:
 
@@ -118,6 +131,7 @@ class DustyInp:
         self.abund_user: dict = {"nk_n": 0}
         self.grains_params: dict = {}
         self.tau_params: dict = {}
+        self.user_taus: Optional[List[float]] = None
         self.output_text: str = ">\n"
         self.comments: List[str] = ["*---------------"]
         self.options: dict = {
@@ -291,13 +305,60 @@ class DustyInp:
         self.grains_params["a(max)"] = amax
 
     def set_optical_depth(
-        self, tau_grid: str, lambda0: float, taumin: float, taumax: float, n_models: int
+        self,
+        tau_grid: str,
+        lambda0: float,
+        taumin: Optional[float] = None,
+        taumax: Optional[float] = None,
+        n_models: Optional[int] = None,
+        taus: Optional[List[float]] = None,
     ) -> None:
+        """Set the optical depth(s) at ``lambda0`` (micron).
+
+        ``tau_grid`` is LINEAR or LOGARITHMIC (``n_models`` values from
+        ``taumin`` to ``taumax``), or USER_SUPPLIED: an arbitrary list
+        ``taus`` that is written to ``<model_name>_taugrid.dat`` next to the
+        ``.inp`` file. DUSTY solves the models in increasing tau, so the
+        list is stored sorted and the output files ``.s001``, ``.s002``, ...
+        follow that order. DUSTY reads at most 999 optical depths.
+        """
+        grid = str(tau_grid).upper()
+        if grid == "USER_SUPPLIED":
+            if taus is None:
+                raise ValueError("tau_grid='USER_SUPPLIED' requires 'taus'.")
+            taus = sorted(float(t) for t in np.atleast_1d(taus))
+            if not 1 <= len(taus) <= MAX_TAU_MODELS:
+                raise ValueError(
+                    f"'taus' must have between 1 and {MAX_TAU_MODELS} values "
+                    f"(got {len(taus)})."
+                )
+            if not all(np.isfinite(t) and t > 0 for t in taus):
+                raise ValueError("All 'taus' must be finite and > 0.")
+            self.tau_params = {
+                "tau_grid": "USER_SUPPLIED",
+                "lambda0": lambda0,
+                "n_models": len(taus),
+            }
+            self.user_taus = taus
+            return
+        if taus is not None:
+            raise ValueError("'taus' is only used with tau_grid='USER_SUPPLIED'.")
+        if taumin is None or taumax is None or n_models is None:
+            raise ValueError(
+                "tau_grid LINEAR/LOGARITHMIC requires taumin, taumax and n_models."
+            )
+        self.user_taus = None
+        self.tau_params = {}
         self.tau_params["tau_grid"] = tau_grid
         self.tau_params["lambda0"] = lambda0
         self.tau_params["tau(min)"] = taumin
         self.tau_params["tau(max)"] = taumax
         self.tau_params["n_models"] = n_models
+
+    @property
+    def tau_grid_file(self) -> Path:
+        """File with the USER_SUPPLIED tau grid (written by print_inp_file)."""
+        return self.output_path / f"{self.model_name}_taugrid.dat"
 
     def set_comments(self, comments: Union[str, List[str]]) -> None:
         if isinstance(comments, list):
@@ -318,6 +379,14 @@ class DustyInp:
         return text
 
     def _tau_to_text(self) -> str:
+        if self.user_taus is not None:
+            # DUSTY reads the grid file name from the next non-empty line and
+            # ignores text after "%"; the commented n_models is for DustyReader.
+            return (
+                "tau_grid = USER_SUPPLIED\n"
+                f"{self.tau_grid_file.name}\n"
+                f"% n_models = {len(self.user_taus)}\n\n"
+            )
         text = ""
         for key in self.tau_params.keys():
             text += f"{key} = {self.tau_params[key]}\n"
@@ -409,14 +478,36 @@ class DustyInp:
         with open(str(self.full_model_name) + ".inp", "w") as o:
             o.write(self.output_text)
 
+        if self.user_taus is not None:
+            lines = [
+                "Optical depths for DUSTY (USER_SUPPLIED tau grid), written by pydusty",
+                ">",
+                f"lambda0 = {self.tau_params['lambda0']} micron",
+                f"Nmodels = {len(self.user_taus)}",
+            ]
+            lines += [repr(t) for t in self.user_taus]
+            self.tau_grid_file.write_text("\n".join(lines) + "\n")
+
     def _clean_outputs(self) -> None:
         """Remove outputs of a previous run of this model (keeps the .inp)."""
         for f in self.output_path.glob(f"{glob.escape(self.model_name)}.*"):
             if f.suffix != ".inp" and f.is_file():
                 f.unlink()
 
-    def run(self, verbose=False) -> None:
+    def run(self, verbose=False, omp_threads: int | None = None) -> None:
+        """Run DUSTY on ``<model_name>.inp`` in ``project_dir``.
+
+        ``omp_threads`` sets ``OMP_NUM_THREADS`` for the DUSTY process
+        (default: ``self.omp_threads``; ``None`` inherits the environment).
+        """
         self._clean_outputs()
+
+        if omp_threads is None:
+            omp_threads = self.omp_threads
+        env = None
+        if omp_threads is not None:
+            env = os.environ.copy()
+            env["OMP_NUM_THREADS"] = str(max(1, int(omp_threads)))
 
         data_path = pkg.files("pydusty").joinpath("fortran/dustyV4")
         cmd = [
@@ -438,6 +529,7 @@ class DustyInp:
                 cwd=self.output_path,
                 capture_output=not verbose,
                 text=True,
+                env=env,
             )
         except OSError as e:
             raise DustyError(f"Could not execute DUSTY ({cmd[0]}): {e}") from e

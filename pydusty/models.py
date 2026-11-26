@@ -7,6 +7,7 @@ Created on Wed Mar 18 15:22:29 2026
 """
 
 import importlib.resources as pkg
+import inspect
 import logging
 import os
 from abc import ABC, abstractmethod
@@ -23,6 +24,7 @@ from scipy.stats import norm
 from .dust_utils import distance_to_cm as _distance_to_cm
 from .dust_utils import planck_bb as _planck_bb
 from .dust_utils import thermal_emission as _thermal_emission
+from .pydusty import MAX_TAU_MODELS
 from .pydusty import DustyError
 from .pydusty import DustyInp as _dustyinp
 from .pydusty import DustyReader as _dustyreader
@@ -148,8 +150,8 @@ class DustyModel(Model):
             "alumina": "Al2O3-comp.nk",
         }
 
-    def _fn_model(self, teff, td, tau, dust_abund, project_dir, *args, **kwargs):
-
+    def _make_inp(self, teff, td, dust_abund, project_dir, omp_threads=None):
+        """DustyInp with everything set except the optical depth."""
         dust_1 = self._dust_types[self.dust_type_1]
         dust_2 = self._dust_types[self.dust_type_2]
 
@@ -179,6 +181,7 @@ class DustyModel(Model):
         inp = _dustyinp(
             model_name=self.model_name,
             project_dir=str(project_dir),
+            omp_threads=omp_threads,
         )
         inp.set_sphere(set_matrix=False)
         inp.set_blackbody(temperature=teff)
@@ -197,6 +200,12 @@ class DustyModel(Model):
             nk_abunds=nk_abund,
         )
         inp.set_radiation_strenght(scale_type="T1", scale_value=td)
+        return inp
+
+    def _fn_model(
+        self, teff, td, tau, dust_abund, project_dir, *args, omp_threads=None, **kwargs
+    ):
+        inp = self._make_inp(teff, td, dust_abund, project_dir, omp_threads)
         inp.set_optical_depth(
             tau_grid="LINEAR",
             lambda0=0.554,
@@ -222,7 +231,13 @@ class DustyModel(Model):
     def compute(
         self,
         project_dir: str | Path = "./output",
+        omp_threads: int | None = None,
     ):
+        """Run DUSTY for the current parameters; return ``(wave, flux)``.
+
+        ``omp_threads`` sets OMP_NUM_THREADS for DUSTY (``None``: inherit
+        the environment).
+        """
 
         if isinstance(project_dir, str):
             project_dir = Path(project_dir)
@@ -232,7 +247,9 @@ class DustyModel(Model):
 
         varied_params = self.params.get_free_param_values()
 
-        self._model()(**varied_params, project_dir=project_dir)
+        self._model()(
+            **varied_params, project_dir=project_dir, omp_threads=omp_threads
+        )
         mod = _dustyreader(model_name=str(project_dir / self.model_name))
         wave, flux = mod.get_spectra()
 
@@ -242,6 +259,80 @@ class DustyModel(Model):
         flux = flux[flux > 0.0]
 
         return wave, flux
+
+    def compute_grid(
+        self,
+        taus,
+        project_dir: str | Path = "./output",
+        omp_threads: int | None = None,
+    ):
+        """Compute many optical depths in a single DUSTY run.
+
+        Uses the current ``teff``, ``td`` and ``dust_abund`` values of
+        ``self.params`` (the ``tau`` parameter is ignored) and DUSTY's
+        USER_SUPPLIED tau grid, so ``taus`` can be any list of positive
+        values (at most 999, DUSTY's limit).
+
+        Returns ``(wave, fluxes, output_data)``: ``fluxes`` has shape
+        ``(len(taus), len(wave))`` and ``output_data`` is the RESULTS table
+        (see :meth:`DustyReader.get_output_data`), both in the order of
+        ``taus`` as given. Unlike :meth:`compute`, points with non-positive
+        flux are not removed, since they can differ between models.
+
+        DUSTY solves the models in increasing tau, starting each one from
+        the previous solution, so the spectra agree with separate
+        :meth:`compute` calls only to within DUSTY's numerical accuracy
+        (the smallest tau is identical; for the others ~1-2 % where the
+        flux is above 1e-3 of the peak, more in the faint far wings), not
+        bit for bit. This pays off for closely spaced taus (e.g. 10 taus
+        in 0.1-5: ~2x faster than 10 :meth:`compute` calls); for widely
+        spaced, large taus (0.02-50) it was ~1.5x slower. Intended for
+        model grids; :class:`EmceeRunner` does not use it.
+        """
+        taus = np.atleast_1d(np.asarray(taus, dtype=float))
+        if taus.ndim != 1 or not 1 <= taus.size <= MAX_TAU_MODELS:
+            raise ValueError(
+                f"'taus' must be a 1-D list of 1 to {MAX_TAU_MODELS} values."
+            )
+
+        project_dir = Path(project_dir)
+        project_dir.mkdir(parents=True, exist_ok=True)
+
+        values = {param.name: param.value for param in self.params}
+        inp = self._make_inp(
+            values["teff"], values["td"], values["dust_abund"], project_dir,
+            omp_threads,
+        )
+        inp.set_optical_depth(tau_grid="USER_SUPPLIED", lambda0=0.554, taus=taus)
+        inp.print_inp_file()
+        inp.run()
+
+        name = project_dir / self.model_name
+        missing = [
+            f"{self.model_name}.s{i + 1:03}"
+            for i in range(taus.size)
+            if not Path(f"{name}.s{i + 1:03}").is_file()
+        ]
+        if missing:
+            raise DustyError(
+                f"DUSTY did not produce all models of the tau grid in "
+                f"{project_dir} (missing: {', '.join(missing)})."
+            )
+
+        reader = _dustyreader(model_name=str(name))
+        wave, fluxes = reader.get_spectra()
+        out = reader.get_output_data()
+
+        # DUSTY ran the taus sorted (stable for ties); undo that.
+        order = np.argsort(taus, kind="stable")
+        inverse = np.empty_like(order)
+        inverse[order] = np.arange(order.size)
+        fluxes = fluxes[inverse]
+        out = {
+            key: [vals[i] for i in inverse] if len(vals) == taus.size else vals
+            for key, vals in out.items()
+        }
+        return wave, fluxes, out
 
 
 @dataclass
@@ -285,22 +376,26 @@ class BBModel(Model):
     def compute(
         self,
         project_dir: str | Path = "./output",
+        save_spectrum: bool = True,
     ):
-
-        if isinstance(project_dir, str):
-            project_dir = Path(project_dir)
-
-        if not project_dir.exists():
-            project_dir.mkdir(parents=True, exist_ok=True)
+        """Return ``(wave, flux)``; with ``save_spectrum`` also write
+        ``<model_name>_spectrum.txt`` in ``project_dir``."""
 
         varied_params = self.params.get_free_param_values()
 
         flux = self._model()(**varied_params)
 
-        np.savetxt(
-            project_dir / f"{self.model_name}_spectrum.txt",
-            np.column_stack((self.wave, flux)),
-        )
+        if save_spectrum:
+            if isinstance(project_dir, str):
+                project_dir = Path(project_dir)
+
+            if not project_dir.exists():
+                project_dir.mkdir(parents=True, exist_ok=True)
+
+            np.savetxt(
+                project_dir / f"{self.model_name}_spectrum.txt",
+                np.column_stack((self.wave, flux)),
+            )
 
         return self.wave, flux
 
@@ -373,24 +468,56 @@ class ThermalEmissionModel(Model):
     def compute(
         self,
         project_dir: str | Path = "./output",
+        save_spectrum: bool = True,
     ):
-
-        if isinstance(project_dir, str):
-            project_dir = Path(project_dir)
-
-        if not project_dir.exists():
-            project_dir.mkdir(parents=True, exist_ok=True)
+        """Return ``(wave, flux)``; with ``save_spectrum`` also write
+        ``<model_name>_spectrum.txt`` in ``project_dir``."""
 
         varied_params = self.params.get_free_param_values()
 
         flux = self._model()(**varied_params)
 
-        np.savetxt(
-            project_dir / f"{self.model_name}_spectrum.txt",
-            np.column_stack((self.wave, flux)),
-        )
+        if save_spectrum:
+            if isinstance(project_dir, str):
+                project_dir = Path(project_dir)
+
+            if not project_dir.exists():
+                project_dir.mkdir(parents=True, exist_ok=True)
+
+            np.savetxt(
+                project_dir / f"{self.model_name}_spectrum.txt",
+                np.column_stack((self.wave, flux)),
+            )
 
         return self.wave, flux
+
+
+# Runner used by the log-probability function in Pool workers; set once per
+# worker by _init_worker so that emcee only pickles theta for each task.
+_WORKER_RUNNER = None
+
+
+def _init_worker(runner):
+    global _WORKER_RUNNER
+    _WORKER_RUNNER = runner
+    runner._scratch_dir()
+
+
+def _worker_log_prob(theta):
+    return _WORKER_RUNNER.log_prob(theta)
+
+
+def _resolve_n_proc(n_proc) -> int:
+    """``-1`` or ``"auto"`` -> os.cpu_count(); otherwise ``max(1, n_proc)``."""
+    if isinstance(n_proc, str):
+        if n_proc.lower() != "auto":
+            raise ValueError(f"n_proc must be an int >= 1, -1 or 'auto' (got {n_proc!r}).")
+        return os.cpu_count() or 1
+    n_proc = int(n_proc)
+    if n_proc == -1:
+        return os.cpu_count() or 1
+    # as before, any other value < 2 runs serially
+    return max(1, n_proc)
 
 
 @dataclass
@@ -410,6 +537,37 @@ class EmceeRunner:
             self.mask_uplims = np.zeros_like(self.x_obs, dtype=bool)
         self._names_varied = [param.name for param in self.params if param.vary]
         self._tmp_models_path = None
+        self._omp_threads = None
+        self._scratch = None
+        self._model_compute_kwargs = None
+
+    def _scratch_dir(self) -> Path:
+        """This process's scratch directory, created once per process."""
+        pid = os.getpid()
+        if self._scratch is None or self._scratch[0] != pid:
+            path = self._tmp_models_path / f"worker_{pid}"
+            path.mkdir(parents=True, exist_ok=True)
+            self._scratch = (pid, path)
+        return self._scratch[1]
+
+    def _compute_kwargs(self) -> dict:
+        """Extra keyword arguments for ``model.compute`` in the fit.
+
+        Only those the model's ``compute`` accepts are passed, so models
+        with the plain ``compute(project_dir)`` signature keep working.
+        """
+        if self._model_compute_kwargs is None:
+            try:
+                accepted = inspect.signature(self.model.compute).parameters
+            except (TypeError, ValueError):
+                accepted = {}
+            kwargs = {}
+            if "save_spectrum" in accepted:
+                kwargs["save_spectrum"] = False
+            if "omp_threads" in accepted and self._omp_threads is not None:
+                kwargs["omp_threads"] = self._omp_threads
+            self._model_compute_kwargs = kwargs
+        return self._model_compute_kwargs
 
     def sample_prior(self, chains: int, seed: int | None = None) -> np.ndarray:
         """Draw ``chains`` starting positions for the free parameters.
@@ -492,10 +650,11 @@ class EmceeRunner:
         else:
             model = self.model(params=self.params)
 
-        worker_id = os.getpid()
-        scratch_dir = self._tmp_models_path / f"worker_{worker_id}"
+        scratch_dir = self._scratch_dir()
         try:
-            wave, flux = model.compute(project_dir=scratch_dir)
+            wave, flux = model.compute(
+                project_dir=scratch_dir, **self._compute_kwargs()
+            )
         except DustyError:
             return -np.inf, -np.inf, -np.inf
 
@@ -542,17 +701,35 @@ class EmceeRunner:
         self,
         continue_from_last: bool = False,
         suffix: str = "_1",
-        n_proc: int = 1,
+        n_proc: int | str = 1,
         steps: int = 1000,
         chains: int = 32,
         p0: list | None = None,
         seed: int | None = None,
+        omp_threads: int | None = None,
     ):
         """Run the sampler.
 
         ``seed`` is passed to :meth:`sample_prior` when ``p0`` is not given
         (it does not seed emcee's own moves).
+
+        ``n_proc``: number of worker processes (``-1`` or ``"auto"``: one per
+        CPU).
+
+        ``omp_threads``: OpenMP threads for each DUSTY run (models whose
+        ``compute`` accepts ``omp_threads``, i.e. :class:`DustyModel`).
+        ``None`` (default) inherits ``OMP_NUM_THREADS`` from the environment.
+        It is not limited automatically: emcee evaluates the walkers in
+        synchronous batches, so one slow (large-tau) model sets the pace,
+        and that model runs ~4x faster with 12 threads than with 1.
+        ``omp_threads=1`` also makes DUSTY runs bit-reproducible: with
+        several threads the DUSTY binary occasionally returns slightly
+        different spectra for the same input.
         """
+        n_proc = _resolve_n_proc(n_proc)
+        self._omp_threads = omp_threads
+        self._model_compute_kwargs = None
+        self._scratch = None
 
         init_positions = None
         backend = emcee.backends.HDFBackend(f"emcee_{suffix}.h5")
@@ -571,11 +748,13 @@ class EmceeRunner:
             self._tmp_models_path = Path(tmpdir)
 
             if n_proc > 1:
-                with Pool(n_proc) as pool:
+                with Pool(
+                    n_proc, initializer=_init_worker, initargs=(self,)
+                ) as pool:
                     sampler = emcee.EnsembleSampler(
                         chains,
                         ndim,
-                        self.log_prob,
+                        _worker_log_prob,
                         backend=backend,
                         pool=pool,
                     )
